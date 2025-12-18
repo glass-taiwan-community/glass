@@ -63,12 +63,12 @@ async function createSTT({ apiKey, language = "en", callbacks = {}, ...config })
  * Creates an Anthropic LLM instance
  * @param {object} opts - Configuration options
  * @param {string} opts.apiKey - Anthropic API key
- * @param {string} [opts.model='claude-3-5-sonnet-20241022'] - Model name
+ * @param {string} [opts.model='claude-sonnet-4-5'] - Model name
  * @param {number} [opts.temperature=0.7] - Temperature
  * @param {number} [opts.maxTokens=4096] - Max tokens
  * @returns {object} LLM instance
  */
-function createLLM({ apiKey, model = "claude-3-5-sonnet-20241022", temperature = 0.7, maxTokens = 4096, ...config }) {
+function createLLM({ apiKey, model = "claude-sonnet-4-5", temperature = 0.7, maxTokens = 4096, ...config }) {
   const client = new Anthropic({ apiKey })
 
   return {
@@ -188,14 +188,14 @@ function createLLM({ apiKey, model = "claude-3-5-sonnet-20241022", temperature =
  * Creates an Anthropic streaming LLM instance
  * @param {object} opts - Configuration options
  * @param {string} opts.apiKey - Anthropic API key
- * @param {string} [opts.model='claude-3-5-sonnet-20241022'] - Model name
+ * @param {string} [opts.model='claude-sonnet-4-5'] - Model name
  * @param {number} [opts.temperature=0.7] - Temperature
  * @param {number} [opts.maxTokens=4096] - Max tokens
  * @returns {object} Streaming LLM instance
  */
 function createStreamingLLM({
   apiKey,
-  model = "claude-3-5-sonnet-20241022",
+  model = "claude-sonnet-4-5",
   temperature = 0.7,
   maxTokens = 4096,
   ...config
