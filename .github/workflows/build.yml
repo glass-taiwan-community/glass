@@ -1,8 +1,10 @@
-name: Build & Verify
+name: Build & Test
 
 on:
   push:
     branches: [ "main" ] # Runs on every push to main branch
+  pull_request:
+    branches: [ "main" ] # Runs on every pull request to main branch
 
 jobs:
   build:
@@ -33,13 +35,25 @@ jobs:
         # Run Electron build script from root directory
         run: npm run build
 
+      - name: 🧪 Run Playwright smoke tests
+        # Run automated tests to verify UI and config loading
+        run: npm test
+
+      - name: 📸 Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 7
+
       - name: 🚨 Send failure notification to Slack
         if: failure()
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_CHANNEL: general
-          SLACK_TITLE: "🚨 Build Failed"
-          SLACK_MESSAGE: "😭 Build failed for `${{ github.repository }}` repo on main branch."
+          SLACK_TITLE: "🚨 Build/Test Failed"
+          SLACK_MESSAGE: "😭 Build or tests failed for `${{ github.repository }}` on ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || 'main branch' }}."
           SLACK_COLOR: 'danger'
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
 
