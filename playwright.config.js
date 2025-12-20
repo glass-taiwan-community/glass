@@ -9,13 +9,16 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
 
-  // Test timeout (30 seconds per test)
-  timeout: 30000,
+  // Test timeout (2 minutes per test for Electron startup)
+  timeout: 120000,
 
   // Expect timeout for assertions
   expect: {
-    timeout: 5000
+    timeout: 10000
   },
+
+  // Global timeout for entire test run (15 minutes)
+  globalTimeout: 900000,
 
   // Run tests in fully parallel mode
   fullyParallel: false,
@@ -24,10 +27,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
 
   // Retry on CI only
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
 
-  // Opt out of parallel tests on CI
+  // Opt out of parallel tests on CI and limit workers
   workers: process.env.CI ? 1 : undefined,
+
+  // Increase worker teardown timeout for Electron cleanup
+  maxFailures: process.env.CI ? 5 : undefined,
 
   // Reporter to use
   reporter: process.env.CI

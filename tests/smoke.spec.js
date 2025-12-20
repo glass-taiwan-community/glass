@@ -22,8 +22,13 @@ test.describe('Glass Application Smoke Tests', () => {
       args: ['.'],
       env: {
         ...process.env,
-        NODE_ENV: 'test'
-      }
+        NODE_ENV: 'test',
+        // Disable GPU in CI for better stability
+        ELECTRON_ENABLE_LOGGING: '1',
+        ELECTRON_DISABLE_SANDBOX: '1'
+      },
+      // Add timeout for app launch
+      timeout: 60000
     });
 
     // Wait for the first window to be ready
@@ -33,7 +38,21 @@ test.describe('Glass Application Smoke Tests', () => {
   test.afterEach(async () => {
     // Clean up: close the app after each test
     if (electronApp) {
-      await electronApp.close();
+      try {
+        // Close all windows first
+        const windows = electronApp.windows();
+        for (const window of windows) {
+          await window.close();
+        }
+
+        // Then close the app with a timeout
+        await Promise.race([
+          electronApp.close(),
+          new Promise((resolve) => setTimeout(resolve, 5000))
+        ]);
+      } catch (error) {
+        console.log('Error during cleanup:', error.message);
+      }
     }
   });
 
