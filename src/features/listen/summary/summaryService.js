@@ -135,8 +135,9 @@ Keep all points concise and build upon previous analysis if provided.
 
 **LANGUAGE INSTRUCTION:**
 - Respond in Traditional Chinese (繁體中文)
+- IMPORTANT: Keep section headers in English exactly as shown (do not translate "**Summary Overview**", "**Key Topic:**", "**Extended Explanation**", "**Suggested Questions**")
 - Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
-- Translate explanations, summaries, questions, and insights to Traditional Chinese
+- Translate all content (explanations, summaries, questions, insights) to Traditional Chinese
 - Preserve all emojis and formatting`,
                 },
             ];
