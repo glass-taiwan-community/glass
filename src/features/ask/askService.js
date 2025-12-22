@@ -261,7 +261,13 @@ class AskService {
                 {
                     role: 'user',
                     content: [
-                        { type: 'text', text: `User Request: ${userPrompt.trim()}` },
+                        { type: 'text', text: `User Request: ${userPrompt.trim()}
+
+**LANGUAGE INSTRUCTION:**
+- Respond in Traditional Chinese (繁體中文)
+- Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
+- Translate all explanations, answers, and suggestions to Traditional Chinese
+- Preserve all emojis and formatting` },
                     ],
                 },
             ];
@@ -311,7 +317,13 @@ class AskService {
                         { role: 'system', content: systemPrompt },
                         {
                             role: 'user',
-                            content: `User Request: ${userPrompt.trim()}`
+                            content: `User Request: ${userPrompt.trim()}
+
+**LANGUAGE INSTRUCTION:**
+- Respond in Traditional Chinese (繁體中文)
+- Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
+- Translate all explanations, answers, and suggestions to Traditional Chinese
+- Preserve all emojis and formatting`
                         }
                     ];
 
