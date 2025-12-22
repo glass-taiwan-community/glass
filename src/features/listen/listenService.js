@@ -244,7 +244,8 @@ class ListenService {
 
             // Reset state
             this.currentSessionId = null;
-            this.summaryService.resetConversationHistory();
+            // Note: Conversation history is NOT reset here to allow post-session interactions
+            // History will be reset when starting a new session (initializeNewSession)
 
             console.log('Listen service session closed.');
             return { success: true };

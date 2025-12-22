@@ -131,7 +131,14 @@ Provide 2-3 sentences explaining the context and implications.
 2. Second follow-up question?
 3. Third follow-up question?
 
-Keep all points concise and build upon previous analysis if provided.`,
+Keep all points concise and build upon previous analysis if provided.
+
+**LANGUAGE INSTRUCTION:**
+- Respond in Traditional Chinese (繁體中文)
+- IMPORTANT: Keep section headers in English exactly as shown (do not translate "**Summary Overview**", "**Key Topic:**", "**Extended Explanation**", "**Suggested Questions**")
+- Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
+- Translate all content (explanations, summaries, questions, insights) to Traditional Chinese
+- Preserve all emojis and formatting`,
                 },
             ];
 
