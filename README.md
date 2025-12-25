@@ -16,6 +16,18 @@
 
 > **Taiwan Community Fork**: This repository is maintained by the Glass Taiwan Community at [glass-taiwan-community](https://github.com/glass-taiwan-community).
 
+## Why this fork exists
+
+This fork was initiated by contributors in the Taiwan community who actively use and depend on `glass`.
+
+As upstream maintenance activity slowed over time, this fork was created to provide a space where community members can collaborate, discuss changes, and move improvements forward in a more timely manner.
+
+The primary goal of this fork is to lower the contribution barrier, coordinate community efforts, and experiment with maintenance approaches that may later be proposed upstream.
+
+This fork does not claim to replace the upstream project and remains open to contributors from any region.
+
+---
+
 🤖 **Fast, light & open-source**—Glass lives on your desktop, sees what you see, listens in real time, understands your context, and turns every moment into structured knowledge.
 
 💬 **Proactive in meetings**—it surfaces action items, summaries, and answers the instant you need them.
