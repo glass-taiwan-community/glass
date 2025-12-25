@@ -14,6 +14,8 @@
 
 > This project is a fork of [CheatingDaddy](https://github.com/sohzm/cheating-daddy) with modifications and enhancements. Thanks to [Soham](https://x.com/soham_btw) and all the open-source contributors who made this possible!
 
+> **Taiwan Community Fork**: This repository is maintained by the Glass Taiwan Community at [glass-taiwan-community](https://github.com/glass-taiwan-community).
+
 🤖 **Fast, light & open-source**—Glass lives on your desktop, sees what you see, listens in real time, understands your context, and turns every moment into structured knowledge.
 
 💬 **Proactive in meetings**—it surfaces action items, summaries, and answers the instant you need them.
