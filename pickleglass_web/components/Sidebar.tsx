@@ -194,6 +194,13 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                 ariaLabel: 'Personalization settings',
             },
             {
+                name: 'Pre-Context',
+                href: '/precontext',
+                icon: '/book.svg',
+                isLucide: false,
+                ariaLabel: 'Preload structured context before session',
+            },
+            {
                 name: 'Settings',
                 href: '/settings',
                 icon: '/setting.svg',

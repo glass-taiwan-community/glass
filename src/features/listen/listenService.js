@@ -12,6 +12,7 @@ class ListenService {
         this.summaryService = new SummaryService();
         this.currentSessionId = null;
         this.isInitializingSession = false;
+        this.preContext = null;
 
         this.setupServiceCallbacks();
         console.log('[ListenService] Service instance created.');
@@ -46,6 +47,11 @@ class ListenService {
         if (listenWindow && !listenWindow.isDestroyed()) {
             listenWindow.webContents.send(channel, data);
         }
+    }
+
+    setPreContext(content) {
+        this.preContext = content || null;
+        console.log('[ListenService] Pre-context set:', this.preContext ? `${this.preContext.length} chars` : 'cleared');
     }
 
     initialize() {
@@ -141,7 +147,10 @@ class ListenService {
 
             // Set session ID for summary service
             this.summaryService.setSessionId(this.currentSessionId);
-            
+
+            // Pass pre-context to summary service
+            this.summaryService.setPreContext(this.preContext);
+
             // Reset conversation history
             this.summaryService.resetConversationHistory();
 
@@ -244,6 +253,7 @@ class ListenService {
 
             // Reset state
             this.currentSessionId = null;
+            this.preContext = null;
             // Note: Conversation history is NOT reset here to allow post-session interactions
             // History will be reset when starting a new session (initializeNewSession)
 

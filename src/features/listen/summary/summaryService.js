@@ -11,7 +11,8 @@ class SummaryService {
         this.analysisHistory = [];
         this.conversationHistory = [];
         this.currentSessionId = null;
-        
+        this.preContext = null;
+
         // Callbacks
         this.onAnalysisComplete = null;
         this.onStatusUpdate = null;
@@ -24,6 +25,10 @@ class SummaryService {
 
     setSessionId(sessionId) {
         this.currentSessionId = sessionId;
+    }
+
+    setPreContext(content) {
+        this.preContext = content || null;
     }
 
     sendToRenderer(channel, data) {
@@ -54,6 +59,77 @@ class SummaryService {
         this.previousAnalysisResult = null;
         this.analysisHistory = [];
         console.log('🔄 Conversation history and analysis state reset');
+    }
+
+    async generateInitialSummary(preContext) {
+        if (!preContext || !preContext.trim()) {
+            console.log('[SummaryService] generateInitialSummary: no pre-context, skipping');
+            return;
+        }
+
+        console.log('[SummaryService] Generating initial summary from pre-context...');
+
+        try {
+            const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            if (!modelInfo || !modelInfo.apiKey) {
+                console.warn('[SummaryService] generateInitialSummary: no model configured');
+                return;
+            }
+
+            const systemPrompt = getSystemPrompt('pickle_glass_analysis', '', false, preContext)
+                .replace('{{CONVERSATION_HISTORY}}', '');
+
+            const messages = [
+                { role: 'system', content: systemPrompt },
+                {
+                    role: 'user',
+                    content: `Based on the preloaded session context, generate an initial structured summary.
+
+**Summary Overview**
+- Main discussion point with context
+
+**Key Topic: [Topic Name]**
+- First key insight
+- Second key insight
+- Third key insight
+
+**Extended Explanation**
+Provide 2-3 sentences explaining the context and implications.
+
+**Suggested Questions**
+1. First follow-up question?
+2. Second follow-up question?
+3. Third follow-up question?
+
+**LANGUAGE INSTRUCTION:**
+- Respond in Traditional Chinese (繁體中文)
+- IMPORTANT: Keep section headers in English exactly as shown
+- Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
+- Translate all content to Traditional Chinese`,
+                },
+            ];
+
+            const { createLLM } = require('../../common/ai/factory');
+            const llm = createLLM(modelInfo.provider, {
+                apiKey: modelInfo.apiKey,
+                model: modelInfo.model,
+                temperature: 0.7,
+                maxTokens: 1024,
+                usePortkey: modelInfo.provider === 'openai-glass',
+                portkeyVirtualKey: modelInfo.provider === 'openai-glass' ? modelInfo.apiKey : undefined,
+            });
+
+            const completion = await llm.chat(messages);
+            const responseText = completion.content;
+            console.log('[SummaryService] Initial summary generated from pre-context');
+
+            const structuredData = this.parseResponseText(responseText, null);
+            this.previousAnalysisResult = structuredData;
+
+            this.sendToRenderer('analysis-result', structuredData);
+        } catch (error) {
+            console.error('[SummaryService] Error generating initial summary:', error.message);
+        }
     }
 
     /**
@@ -90,7 +166,7 @@ Please build upon this context while analyzing the new conversation segments.
 `;
         }
 
-        const basePrompt = getSystemPrompt('pickle_glass_analysis', '', false);
+        const basePrompt = getSystemPrompt('pickle_glass_analysis', '', false, this.preContext);
         const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', recentConversation);
 
         try {

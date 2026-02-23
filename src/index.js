@@ -223,11 +223,18 @@ app.whenReady().then(async () => {
 
     } catch (err) {
         console.error('>>> [index.js] Database initialization failed - some features may not work', err);
-        // Optionally, show an error dialog to the user
-        dialog.showErrorBox(
-            'Application Error',
-            'A critical error occurred during startup. Some features might be disabled. Please restart the application.'
-        );
+
+        // In test mode, still create windows even if initialization fails
+        if (process.env.NODE_ENV === 'test') {
+            console.log('>>> [index.js] Test mode: Creating windows despite initialization error');
+            createWindows();
+        } else {
+            // In production, show an error dialog to the user
+            dialog.showErrorBox(
+                'Application Error',
+                'A critical error occurred during startup. Some features might be disabled. Please restart the application.'
+            );
+        }
     }
 
     // initAutoUpdater should be called after auth is initialized
@@ -321,6 +328,7 @@ function setupWebDataHandlers() {
     const askRepository = require('./features/ask/repositories');
     const userRepository = require('./features/common/repositories/user');
     const presetRepository = require('./features/common/repositories/preset');
+    const preContextRepository = require('./features/common/repositories/precontext');
 
     const handleRequest = async (channel, responseChannel, payload) => {
         let result;
@@ -429,6 +437,21 @@ function setupWebDataHandlers() {
                     });
 
                     result = batchResult;
+                    break;
+
+                // PRE-CONTEXT
+                case 'get-pre-context':
+                    result = await preContextRepository.get();
+                    break;
+                case 'save-pre-context':
+                    result = await preContextRepository.save(payload);
+                    break;
+                case 'preload-and-start-session':
+                    await preContextRepository.save(payload);
+                    listenService.setPreContext(payload.content);
+                    await listenService.handleListenRequest('Listen');
+                    listenService.summaryService.generateInitialSummary(payload.content);
+                    result = { success: true };
                     break;
 
                 default:

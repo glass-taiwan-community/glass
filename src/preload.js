@@ -191,11 +191,17 @@ contextBridge.exposeInMainWorld('api', {
   summaryView: {
     // Message Handling
     sendQuestionFromSummary: (text) => ipcRenderer.invoke('ask:sendQuestionFromSummary', text),
-    
+    expandSummaryItem: (data) => ipcRenderer.invoke('listen:expandSummaryItem', data),
+
     // Listeners
     onSummaryUpdate: (callback) => ipcRenderer.on('summary-update', callback),
     removeOnSummaryUpdate: (callback) => ipcRenderer.removeListener('summary-update', callback),
-    removeAllSummaryUpdateListeners: () => ipcRenderer.removeAllListeners('summary-update')
+    onAnalysisResult: (callback) => ipcRenderer.on('analysis-result', callback),
+    removeOnAnalysisResult: (callback) => ipcRenderer.removeListener('analysis-result', callback),
+    removeAllSummaryUpdateListeners: () => {
+      ipcRenderer.removeAllListeners('summary-update');
+      ipcRenderer.removeAllListeners('analysis-result');
+    }
   },
 
   // src/ui/settings/SettingsView.js
