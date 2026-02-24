@@ -112,42 +112,6 @@ module.exports = {
       }
     });
 
-    // Listen - expand summary item with AI
-    ipcMain.handle('listen:expandSummaryItem', async (event, { item }) => {
-      try {
-        const { getSystemPrompt } = require('../features/common/prompts/promptBuilder');
-        const { createLLM } = require('../features/common/ai/factory');
-        const preContext = listenService.preContext;
-
-        const modelInfo = await modelStateService.getCurrentModelInfo('llm');
-        if (!modelInfo || !modelInfo.apiKey) {
-          return { success: false, error: 'No AI model configured' };
-        }
-
-        const systemPrompt = getSystemPrompt('pickle_glass_analysis', '', false, preContext)
-          .replace('{{CONVERSATION_HISTORY}}', listenService.getConversationHistory().slice(-10).join('\n'));
-
-        const llm = createLLM(modelInfo.provider, {
-          apiKey: modelInfo.apiKey,
-          model: modelInfo.model,
-          temperature: 0.7,
-          maxTokens: 512,
-          usePortkey: modelInfo.provider === 'openai-glass',
-          portkeyVirtualKey: modelInfo.provider === 'openai-glass' ? modelInfo.apiKey : undefined,
-        });
-
-        const completion = await llm.chat([
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Expand on this point with more detail (2-4 sentences, respond in Traditional Chinese unless the topic requires English): ${item}` },
-        ]);
-
-        return { success: true, text: completion.content };
-      } catch (error) {
-        console.error('[FeatureBridge] listen:expandSummaryItem failed:', error);
-        return { success: false, error: error.message };
-      }
-    });
-
     // ModelStateService
     ipcMain.handle('model:validate-key', async (e, { provider, key }) => await modelStateService.handleValidateKey(provider, key));
     ipcMain.handle('model:get-all-keys', async () => await modelStateService.getAllApiKeys());

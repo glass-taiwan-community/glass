@@ -237,8 +237,6 @@ export class SummaryView extends LitElement {
         structuredData: { type: Object },
         isVisible: { type: Boolean },
         hasCompletedRecording: { type: Boolean },
-        expandedItems: { type: Object },
-        expandingItems: { type: Object },
     };
 
     constructor() {
@@ -251,9 +249,6 @@ export class SummaryView extends LitElement {
         };
         this.isVisible = true;
         this.hasCompletedRecording = false;
-        this.expandedItems = new Map();   // itemKey -> AI response text
-        this.expandingItems = new Set();  // itemKey -> loading
-
         // 마크다운 라이브러리 초기화
         this.marked = null;
         this.hljs = null;
@@ -285,43 +280,6 @@ export class SummaryView extends LitElement {
         }
     }
 
-    async handleItemExpand(itemKey, itemText) {
-        if (this.expandedItems.has(itemKey) || this.expandingItems.has(itemKey)) {
-            // Toggle collapse if already expanded
-            if (this.expandedItems.has(itemKey)) {
-                const newMap = new Map(this.expandedItems);
-                newMap.delete(itemKey);
-                this.expandedItems = newMap;
-                this.requestUpdate();
-            }
-            return;
-        }
-
-        if (!window.api || !window.api.summaryView.expandSummaryItem) {
-            this.handleRequestClick(itemText);
-            return;
-        }
-
-        const newExpanding = new Set(this.expandingItems);
-        newExpanding.add(itemKey);
-        this.expandingItems = newExpanding;
-        this.requestUpdate();
-
-        try {
-            const result = await window.api.summaryView.expandSummaryItem({ item: itemText });
-            const newMap = new Map(this.expandedItems);
-            newMap.set(itemKey, result.text || '');
-            this.expandedItems = newMap;
-        } catch (error) {
-            console.error('Error expanding summary item:', error);
-        } finally {
-            const newExpanding = new Set(this.expandingItems);
-            newExpanding.delete(itemKey);
-            this.expandingItems = newExpanding;
-            this.requestUpdate();
-        }
-    }
-
     // Handle session reset from parent
     resetAnalysis() {
         this.structuredData = {
@@ -330,8 +288,6 @@ export class SummaryView extends LitElement {
             actions: [],
             followUps: [],
         };
-        this.expandedItems = new Map();
-        this.expandingItems = new Set();
         this.requestUpdate();
     }
 
@@ -468,36 +424,15 @@ export class SummaryView extends LitElement {
         }
     }
 
-    _renderExpandableItem(itemKey, text) {
-        const isExpanding = this.expandingItems.has(itemKey);
-        const expandedText = this.expandedItems.get(itemKey);
-        const isExpanded = this.expandedItems.has(itemKey);
-
+    _renderClickableItem(text) {
         return html`
-            <div>
-                <div
-                    class="markdown-content"
-                    data-markdown-id="${itemKey}"
-                    data-original-text="${text}"
-                    @click=${() => this.handleItemExpand(itemKey, text)}
-                >
-                    ${text}
-                    ${isExpanding ? html`<span style="margin-left:6px;opacity:0.6;font-size:10px;">...</span>` : ''}
-                    ${isExpanded && !isExpanding ? html`<span style="margin-left:6px;opacity:0.5;font-size:9px;">▲</span>` : ''}
-                    ${!isExpanded && !isExpanding ? html`<span style="margin-left:6px;opacity:0.3;font-size:9px;">▼</span>` : ''}
-                </div>
-                ${isExpanded && expandedText
-                    ? html`
-                        <div
-                            class="markdown-content"
-                            data-markdown-id="${itemKey}-expanded"
-                            data-original-text="${expandedText}"
-                            style="margin-left:12px;border-left:2px solid rgba(255,255,255,0.2);padding-left:8px;opacity:0.85;"
-                        >
-                            ${expandedText}
-                        </div>
-                    `
-                    : ''}
+            <div
+                class="markdown-content"
+                data-markdown-id="${text.substring(0, 20)}"
+                data-original-text="${text}"
+                @click=${() => this.handleRequestClick(text)}
+            >
+                ${text}
             </div>
         `;
     }
@@ -553,7 +488,7 @@ export class SummaryView extends LitElement {
                             ? data.summary
                                   .slice(0, 5)
                                   .map(
-                                      (bullet, index) => this._renderExpandableItem(`summary-${index}`, bullet)
+                                      (bullet) => this._renderClickableItem(bullet)
                                   )
                             : html` <div class="request-item">No content yet...</div> `}
                         ${data.topic.header
@@ -562,7 +497,7 @@ export class SummaryView extends LitElement {
                                   ${data.topic.bullets
                                       .slice(0, 3)
                                       .map(
-                                          (bullet, index) => this._renderExpandableItem(`topic-${index}`, bullet)
+                                          (bullet) => this._renderClickableItem(bullet)
                                       )}
                               `
                             : ''}
@@ -572,7 +507,7 @@ export class SummaryView extends LitElement {
                                   ${data.actions
                                       .slice(0, 5)
                                       .map(
-                                          (action, index) => this._renderExpandableItem(`action-${index}`, action)
+                                          (action) => this._renderClickableItem(action)
                                       )}
                               `
                             : ''}
@@ -580,7 +515,7 @@ export class SummaryView extends LitElement {
                             ? html`
                                   <insights-title>Follow-Ups</insights-title>
                                   ${data.followUps.map(
-                                      (followUp, index) => this._renderExpandableItem(`followup-${index}`, followUp)
+                                      (followUp) => this._renderClickableItem(followUp)
                                   )}
                               `
                             : ''}

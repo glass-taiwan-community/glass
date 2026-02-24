@@ -191,7 +191,6 @@ contextBridge.exposeInMainWorld('api', {
   summaryView: {
     // Message Handling
     sendQuestionFromSummary: (text) => ipcRenderer.invoke('ask:sendQuestionFromSummary', text),
-    expandSummaryItem: (data) => ipcRenderer.invoke('listen:expandSummaryItem', data),
 
     // Listeners
     onSummaryUpdate: (callback) => ipcRenderer.on('summary-update', callback),

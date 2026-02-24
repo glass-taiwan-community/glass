@@ -54,6 +54,10 @@ class ListenService {
         console.log('[ListenService] Pre-context set:', this.preContext ? `${this.preContext.length} chars` : 'cleared');
     }
 
+    generateInitialSummary(content) {
+        this.summaryService.generateInitialSummary(content);
+    }
+
     initialize() {
         this.setupIpcHandlers();
         console.log('[ListenService] Initialized and ready.');
