@@ -114,6 +114,14 @@ const LATEST_SCHEMA = {
             { name: 'uid', type: 'TEXT PRIMARY KEY' },
             { name: 'keychain_completed', type: 'INTEGER DEFAULT 0' }
         ]
+    },
+    pre_context_settings: {
+        columns: [
+            { name: 'uid', type: 'TEXT PRIMARY KEY' },
+            { name: 'title', type: 'TEXT' },
+            { name: 'content', type: 'TEXT' },
+            { name: 'updated_at', type: 'INTEGER' }
+        ]
     }
 };
 

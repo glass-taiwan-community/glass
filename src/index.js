@@ -321,6 +321,7 @@ function setupWebDataHandlers() {
     const askRepository = require('./features/ask/repositories');
     const userRepository = require('./features/common/repositories/user');
     const presetRepository = require('./features/common/repositories/preset');
+    const preContextRepository = require('./features/common/repositories/precontext');
 
     const handleRequest = async (channel, responseChannel, payload) => {
         let result;
@@ -429,6 +430,21 @@ function setupWebDataHandlers() {
                     });
 
                     result = batchResult;
+                    break;
+
+                // PRE-CONTEXT
+                case 'get-pre-context':
+                    result = await preContextRepository.get();
+                    break;
+                case 'save-pre-context':
+                    result = await preContextRepository.save(payload);
+                    break;
+                case 'preload-and-start-session':
+                    await preContextRepository.save(payload);
+                    listenService.setPreContext(payload.content);
+                    await listenService.handleListenRequest('Listen');
+                    listenService.generateInitialSummary(payload.content);
+                    result = { success: true };
                     break;
 
                 default:

@@ -249,7 +249,6 @@ export class SummaryView extends LitElement {
         };
         this.isVisible = true;
         this.hasCompletedRecording = false;
-
         // 마크다운 라이브러리 초기화
         this.marked = null;
         this.hljs = null;
@@ -264,6 +263,10 @@ export class SummaryView extends LitElement {
         super.connectedCallback();
         if (window.api) {
             window.api.summaryView.onSummaryUpdate((event, data) => {
+                this.structuredData = data;
+                this.requestUpdate();
+            });
+            window.api.summaryView.onAnalysisResult((event, data) => {
                 this.structuredData = data;
                 this.requestUpdate();
             });
@@ -421,6 +424,19 @@ export class SummaryView extends LitElement {
         }
     }
 
+    _renderClickableItem(text) {
+        return html`
+            <div
+                class="markdown-content"
+                data-markdown-id="${text.substring(0, 20)}"
+                data-original-text="${text}"
+                @click=${() => this.handleRequestClick(text)}
+            >
+                ${text}
+            </div>
+        `;
+    }
+
     getSummaryText() {
         const data = this.structuredData || { summary: [], topic: { header: '', bullets: [] }, actions: [] };
         let sections = [];
@@ -472,16 +488,7 @@ export class SummaryView extends LitElement {
                             ? data.summary
                                   .slice(0, 5)
                                   .map(
-                                      (bullet, index) => html`
-                                          <div
-                                              class="markdown-content"
-                                              data-markdown-id="summary-${index}"
-                                              data-original-text="${bullet}"
-                                              @click=${() => this.handleMarkdownClick(bullet)}
-                                          >
-                                              ${bullet}
-                                          </div>
-                                      `
+                                      (bullet) => this._renderClickableItem(bullet)
                                   )
                             : html` <div class="request-item">No content yet...</div> `}
                         ${data.topic.header
@@ -490,16 +497,7 @@ export class SummaryView extends LitElement {
                                   ${data.topic.bullets
                                       .slice(0, 3)
                                       .map(
-                                          (bullet, index) => html`
-                                              <div
-                                                  class="markdown-content"
-                                                  data-markdown-id="topic-${index}"
-                                                  data-original-text="${bullet}"
-                                                  @click=${() => this.handleMarkdownClick(bullet)}
-                                              >
-                                                  ${bullet}
-                                              </div>
-                                          `
+                                          (bullet) => this._renderClickableItem(bullet)
                                       )}
                               `
                             : ''}
@@ -509,16 +507,7 @@ export class SummaryView extends LitElement {
                                   ${data.actions
                                       .slice(0, 5)
                                       .map(
-                                          (action, index) => html`
-                                              <div
-                                                  class="markdown-content"
-                                                  data-markdown-id="action-${index}"
-                                                  data-original-text="${action}"
-                                                  @click=${() => this.handleMarkdownClick(action)}
-                                              >
-                                                  ${action}
-                                              </div>
-                                          `
+                                          (action) => this._renderClickableItem(action)
                                       )}
                               `
                             : ''}
@@ -526,16 +515,7 @@ export class SummaryView extends LitElement {
                             ? html`
                                   <insights-title>Follow-Ups</insights-title>
                                   ${data.followUps.map(
-                                      (followUp, index) => html`
-                                          <div
-                                              class="markdown-content"
-                                              data-markdown-id="followup-${index}"
-                                              data-original-text="${followUp}"
-                                              @click=${() => this.handleMarkdownClick(followUp)}
-                                          >
-                                              ${followUp}
-                                          </div>
-                                      `
+                                      (followUp) => this._renderClickableItem(followUp)
                                   )}
                               `
                             : ''}

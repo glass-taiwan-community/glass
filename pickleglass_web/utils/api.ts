@@ -544,6 +544,12 @@ export interface BatchData {
     sessions?: Session[];
 }
 
+export interface PreContext {
+    title: string;
+    content: string;
+    updated_at?: number;
+}
+
 export const getBatchData = async (includes: ('profile' | 'presets' | 'sessions')[]): Promise<BatchData> => {
   if (isFirebaseMode()) {
     const result: BatchData = {};
@@ -572,6 +578,28 @@ export const getBatchData = async (includes: ('profile' | 'presets' | 'sessions'
     if (!response.ok) throw new Error('Failed to fetch batch data');
     return response.json();
   }
+};
+
+export const getPreContext = async (): Promise<PreContext | null> => {
+  const response = await apiCall('/api/precontext', { method: 'GET' });
+  if (!response.ok) throw new Error('Failed to fetch pre-context');
+  return response.json();
+};
+
+export const savePreContext = async (data: PreContext): Promise<void> => {
+  const response = await apiCall('/api/precontext', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to save pre-context');
+};
+
+export const preloadAndStartSession = async (data: PreContext): Promise<void> => {
+  const response = await apiCall('/api/precontext/preload-and-start', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to preload and start session');
 };
 
 export const logout = async () => {
