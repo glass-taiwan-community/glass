@@ -52,14 +52,14 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
   const headers = keyType === 'apiKey'
     ? {
         'Authorization': `Bearer ${key}`,
-        'OpenAI-Beta': 'realtime=v1',
       }
     : {
         'x-portkey-api-key': 'gRv2UGRMq6GGLJ8aVEB4e7adIewu',
         'x-portkey-virtual-key': key,
-        'OpenAI-Beta': 'realtime=v1',
       };
 
+  console.log('[STT DEBUG] Connecting to:', wsUrl);
+  console.log('[STT DEBUG] Headers:', JSON.stringify(Object.keys(headers)));
   const ws = new WebSocket(wsUrl, { headers });
 
   return new Promise((resolve, reject) => {
@@ -67,26 +67,35 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
       console.log("WebSocket session opened.");
 
       const sessionConfig = {
-        type: 'transcription_session.update',
+        type: 'session.update',
         session: {
-          input_audio_format: 'pcm16',
-          input_audio_transcription: {
-            model: 'gpt-4o-mini-transcribe',
-            prompt: config.prompt || '',
-            language: language || 'en'
+          type: 'transcription',
+          audio: {
+            input: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000,
+              },
+              transcription: {
+                model: 'gpt-4o-mini-transcribe',
+                prompt: config.prompt || '',
+                language: language || 'en',
+              },
+              noise_reduction: {
+                type: 'near_field',
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 200,
+                silence_duration_ms: 500,
+              },
+            },
           },
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 200,
-            silence_duration_ms: 100,
-          },
-          input_audio_noise_reduction: {
-            type: 'near_field'
-          }
-        }
+        },
       };
       
+      console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
       ws.send(JSON.stringify(sessionConfig));
 
       // Helper to periodically keep the websocket alive
@@ -124,6 +133,7 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
     };
 
     ws.onmessage = (event) => {
+      console.log('[STT DEBUG] raw message:', event.data);
       // ── 종료·하트비트 패킷 필터링 ──────────────────────────────
       if (!event.data || event.data === 'null' || event.data === '[DONE]') return;
 
