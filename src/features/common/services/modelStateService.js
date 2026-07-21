@@ -197,7 +197,7 @@ class ModelStateService extends EventEmitter {
     }
 
     async handleLocalAIStateChange(service, state) {
-        console.log(`[ModelStateService] LocalAI state changed: ${service}`, state);
+        if (process.env.GLASS_DEBUG_LOCAL_AI) console.log(`[ModelStateService] LocalAI state changed: ${service}`, state);
         if (!state.installed || !state.running) {
             const type = service === 'ollama' ? 'llm' : service === 'whisper' ? 'stt' : null;
 
@@ -212,7 +212,7 @@ class ModelStateService extends EventEmitter {
                 if (activeProvider === service || !activeProvider) {
                     await this._autoSelectAvailableModels([type]);
                 } else {
-                    console.log(`[ModelStateService] ${service} unavailable, but ${type} is on '${activeProvider}' - keeping current selection.`);
+                    if (process.env.GLASS_DEBUG_LOCAL_AI) console.log(`[ModelStateService] ${service} unavailable, but ${type} is on '${activeProvider}' - keeping current selection.`);
                 }
             }
         }

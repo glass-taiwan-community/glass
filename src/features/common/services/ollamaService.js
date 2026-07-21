@@ -182,7 +182,7 @@ class OllamaService extends EventEmitter {
             
             return response.ok;
         } catch (error) {
-            console.log(`[OllamaService] Service health check failed: ${error.message}`);
+            if (process.env.GLASS_DEBUG_LOCAL_AI) console.log(`[OllamaService] Service health check failed: ${error.message}`);
             return false;
         }
     }
