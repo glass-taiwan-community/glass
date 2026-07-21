@@ -73,23 +73,19 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
     ws.onopen = () => {
       console.log("WebSocket session opened.");
 
-      const sessionConfig = {
-        type: 'session.update',
-        session: {
-          type: 'transcription',
-          audio: {
-            input: {
-              format: {
-                type: 'audio/pcm',
-                rate: 24000,
-              },
-              transcription: {
-                model: 'gpt-4o-mini-transcribe',
-                prompt: config.prompt || '',
+      const model = config.model || 'gpt-realtime-whisper';
+
+      // gpt-realtime-whisper uses the newer flat session config format;
+      // other OpenAI transcription models use the legacy nested audio.input format.
+      const sessionConfig = model === 'gpt-realtime-whisper'
+        ? {
+            type: 'session.update',
+            session: {
+              input_audio_format: 'pcm16',
+              input_audio_noise_reduction: { type: 'near_field' },
+              input_audio_transcription: {
+                model,
                 language: language || 'en',
-              },
-              noise_reduction: {
-                type: 'near_field',
               },
               turn_detection: {
                 type: 'server_vad',
@@ -98,9 +94,35 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
                 silence_duration_ms: 500,
               },
             },
-          },
-        },
-      };
+          }
+        : {
+            type: 'session.update',
+            session: {
+              type: 'transcription',
+              audio: {
+                input: {
+                  format: {
+                    type: 'audio/pcm',
+                    rate: 24000,
+                  },
+                  transcription: {
+                    model,
+                    prompt: config.prompt || '',
+                    language: language || 'en',
+                  },
+                  noise_reduction: {
+                    type: 'near_field',
+                  },
+                  turn_detection: {
+                    type: 'server_vad',
+                    threshold: 0.5,
+                    prefix_padding_ms: 200,
+                    silence_duration_ms: 500,
+                  },
+                },
+              },
+            },
+          };
       
       if (sttDebug) console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
       ws.send(JSON.stringify(sessionConfig));

@@ -292,7 +292,7 @@ class WhisperService extends EventEmitter {
             await this.ensureWhisperBinary();
             
             this.installState.isInitialized = true;
-            console.log('[WhisperService] Initialized successfully');
+            if (process.env.GLASS_DEBUG_LOCAL_AI) console.log('[WhisperService] Initialized successfully');
         } catch (error) {
             console.error('[WhisperService] Initialization failed:', error);
             // Emit error event - LocalAIManager가 처리
@@ -364,7 +364,7 @@ class WhisperService extends EventEmitter {
         const whisperCliPath = await this.checkCommand('whisper-cli');
         if (whisperCliPath) {
             this.whisperPath = whisperCliPath;
-            console.log(`[WhisperService] Found whisper-cli at: ${this.whisperPath}`);
+            if (process.env.GLASS_DEBUG_LOCAL_AI) console.log(`[WhisperService] Found whisper-cli at: ${this.whisperPath}`);
             return;
         }
 
@@ -585,7 +585,7 @@ class WhisperService extends EventEmitter {
 
     async getInstalledModels() {
         if (!this.installState.isInitialized) {
-            console.log('[WhisperService] Service not initialized for getInstalledModels, initializing now...');
+            if (process.env.GLASS_DEBUG_LOCAL_AI) console.log('[WhisperService] Service not initialized for getInstalledModels, initializing now...');
             await this.initialize();
         }
 
