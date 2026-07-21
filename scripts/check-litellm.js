@@ -42,14 +42,70 @@ function probeWebSocket(wsUrl, variant) {
         const done = r => { try { ws.close(); } catch {} resolve(r); };
         const timer = setTimeout(() => done({ ok: false, status: null, detail: 'timed out after 10s' }), 10000);
 
-        ws.on('open', () => { clearTimeout(timer); done({ ok: true, status: 101, detail: 'handshake accepted' }); });
+        ws.on('open', () => { clearTimeout(timer); done({ ok: true, status: 101, detail: 'handshake accepted', server: null }); });
         // Fires when the server refuses the upgrade; carries the HTTP status, which is the
         // whole point - 404 (not routed) and 401 (routed, auth differs) mean different things.
+        // The `server` header identifies WHO refused: LiteLLM runs under uvicorn, so a
+        // rejection from anything else means an edge proxy answered before LiteLLM saw it.
         ws.on('unexpected-response', (_req, res) => {
             clearTimeout(timer);
-            done({ ok: false, status: res.statusCode, detail: `HTTP ${res.statusCode} ${res.statusMessage || ''}`.trim() });
+            const server = res.headers?.server || null;
+            done({
+                ok: false,
+                status: res.statusCode,
+                detail: `HTTP ${res.statusCode} ${res.statusMessage || ''}`.trim() + (server ? `  [server: ${server}]` : ''),
+                server,
+            });
         });
-        ws.on('error', err => { clearTimeout(timer); done({ ok: false, status: null, detail: err.message }); });
+        ws.on('error', err => { clearTimeout(timer); done({ ok: false, status: null, detail: err.message, server: null }); });
+    });
+}
+
+/**
+ * Distinguishes "auth is wrong" from "the edge blocks WebSocket upgrades at all".
+ *
+ * Sends WebSocket upgrade headers to a path already known to return 200. If that path now
+ * fails, the upgrade itself is being rejected by something in front of LiteLLM - a WAF, load
+ * balancer or ingress - and no amount of changing auth headers will help.
+ *
+ * @param {string} root
+ * @param {string} key
+ * @returns {Promise<{status: number, server: string|null}>}
+ */
+function probeUpgradeOnKnownGoodPath(root, key) {
+    // Uses the raw http/https module rather than fetch: Connection and Upgrade are forbidden
+    // header names in undici, so fetch silently refuses to send them.
+    const url = new URL(`${root}/v1/models`);
+    const transport = url.protocol === 'https:' ? require('node:https') : require('node:http');
+
+    return new Promise((resolve, reject) => {
+        const req = transport.request(
+            {
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname + url.search,
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    Connection: 'Upgrade',
+                    Upgrade: 'websocket',
+                    'Sec-WebSocket-Version': '13',
+                    'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+                },
+            },
+            res => {
+                res.resume(); // drain so the socket can close
+                resolve({ status: res.statusCode, server: res.headers.server || null });
+            }
+        );
+        // A server that honours the upgrade replies 101 via this event instead of 'response'.
+        req.on('upgrade', (res, socket) => {
+            socket.destroy();
+            resolve({ status: res.statusCode, server: res.headers.server || null });
+        });
+        req.on('error', reject);
+        req.setTimeout(10000, () => { req.destroy(); reject(new Error('timed out after 10s')); });
+        req.end();
     });
 }
 
@@ -120,19 +176,48 @@ function probeWebSocket(wsUrl, variant) {
         (r.ok ? pass : fail)(`${v.label.padEnd(22)} ${r.detail}`);
     }
 
-    // --- Verdict ---
-    console.log('\n' + '='.repeat(60));
     const connected = results.find(r => r.ok);
-    const anyAuthError = results.some(r => r.status === 401 || r.status === 403);
+    const allSameStatus = results.every(r => r.status != null && r.status === results[0].status);
     const allNotFound = results.every(r => r.status === 404);
 
+    // An identical rejection across three DIFFERENT auth headers is evidence AGAINST an auth
+    // problem - a header mismatch would normally vary, and would normally be 401 rather than
+    // 403. So before blaming auth, check whether the upgrade itself is what gets rejected.
+    let upgradeBlocked = null;
+    if (!connected && allSameStatus && !allNotFound) {
+        console.log('\n[4] Disambiguating: is the WebSocket upgrade itself blocked?');
+        try {
+            const probe = await probeUpgradeOnKnownGoodPath(root, KEY);
+            info(`GET /v1/models WITHOUT upgrade headers -> HTTP 200`);
+            info(`GET /v1/models WITH    upgrade headers -> HTTP ${probe.status}` + (probe.server ? `  [server: ${probe.server}]` : ''));
+            upgradeBlocked = probe.status !== 200;
+            (upgradeBlocked ? fail : pass)(
+                upgradeBlocked
+                    ? 'the same request fails once upgrade headers are added'
+                    : 'upgrade headers alone are accepted on a known-good path'
+            );
+        } catch (err) {
+            fail(`probe failed: ${err.message}`);
+        }
+    }
+
+    // --- Verdict ---
+    console.log('\n' + '='.repeat(60));
     console.log(`LLM via LiteLLM:  READY (${chatModels.length} chat models available)`);
+
     if (connected) {
-        console.log('STT via LiteLLM:  ROUTE EXISTS - realtime transcription could move to the gateway too');
+        console.log('STT via LiteLLM:  ROUTE EXISTS - realtime transcription could move to the gateway');
     } else if (allNotFound) {
         console.log('STT via LiteLLM:  NOT ROUTED (404) - speech-to-text must keep its own vendor key');
-    } else if (anyAuthError) {
-        console.log('STT via LiteLLM:  ROUTED BUT AUTH DIFFERS (401/403) - fixable, needs the right header');
+    } else if (upgradeBlocked === true) {
+        console.log(`STT via LiteLLM:  BLOCKED AT THE EDGE - WebSocket upgrades are rejected (${results[0].status})`);
+        console.log('                  before LiteLLM sees them. Not fixable from this codebase;');
+        console.log('                  needs an infrastructure change by your platform team.');
+    } else if (upgradeBlocked === false) {
+        console.log(`STT via LiteLLM:  ROUTE-SPECIFIC REJECTION (${results[0].status}) - upgrades are allowed in`);
+        console.log('                  general, so /v1/realtime is either not enabled on this');
+        console.log('                  deployment or the virtual key lacks permission for it.');
+        console.log('                  Ask your platform team to enable realtime for this key.');
     } else {
         console.log('STT via LiteLLM:  INCONCLUSIVE - see the errors above');
     }
