@@ -58,8 +58,15 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
         'x-portkey-virtual-key': key,
       };
 
-  console.log('[STT DEBUG] Connecting to:', wsUrl);
-  console.log('[STT DEBUG] Headers:', JSON.stringify(Object.keys(headers)));
+  // Verbose realtime tracing, off by default: it logs every websocket frame, which
+  // drowns out everything else in a live session. Kept rather than deleted because it
+  // is what made the Realtime GA transcription migration debuggable.
+  const sttDebug = !!process.env.GLASS_DEBUG_STT;
+
+  if (sttDebug) {
+    console.log('[STT DEBUG] Connecting to:', wsUrl);
+    console.log('[STT DEBUG] Headers:', JSON.stringify(Object.keys(headers)));
+  }
   const ws = new WebSocket(wsUrl, { headers });
 
   return new Promise((resolve, reject) => {
@@ -95,7 +102,7 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
         },
       };
       
-      console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
+      if (sttDebug) console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
       ws.send(JSON.stringify(sessionConfig));
 
       // Helper to periodically keep the websocket alive
@@ -133,7 +140,7 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
     };
 
     ws.onmessage = (event) => {
-      console.log('[STT DEBUG] raw message:', event.data);
+      if (sttDebug) console.log('[STT DEBUG] raw message:', event.data);
       // ── 종료·하트비트 패킷 필터링 ──────────────────────────────
       if (!event.data || event.data === 'null' || event.data === '[DONE]') return;
 
