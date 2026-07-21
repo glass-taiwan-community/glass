@@ -22,6 +22,10 @@ class ModelStateService extends EventEmitter {
         this.setupLocalAIStateSync();
         await this._autoSelectAvailableModels([], true);
         console.log('[ModelStateService] One-time setup complete.');
+
+        // Deliberately not awaited: discovery needs the network, and startup must stay fast
+        // and must succeed offline.
+        this._discoverGatewayModels();
     }
 
     async _initializeEncryption() {
@@ -136,6 +140,52 @@ class ModelStateService extends EventEmitter {
         } catch (error) {
             // Seeding is a convenience; never let it block startup.
             console.warn('[ModelStateService] LiteLLM environment seeding failed:', error.message);
+        }
+    }
+
+    /**
+     * Fills in the model catalogue for a gateway provider that has credentials but has never
+     * been validated - which is exactly the state _seedFromEnvironment() leaves behind, since
+     * seeding is not allowed to make network calls during startup.
+     *
+     * Without this, provisioning purely through LITELLM_API_KEY / LITELLM_BASE_URL stores a
+     * key and an endpoint but leaves no selectable model, so the provider silently never
+     * becomes usable and the user has to re-enter the same values in Settings to trigger it.
+     *
+     * Runs after startup, never throws, and never changes the user's selected model: it only
+     * makes models available. Switching provider stays an explicit user action.
+     */
+    async _discoverGatewayModels() {
+        for (const [providerId, config] of Object.entries(PROVIDERS)) {
+            if (!config.requiresBaseUrl) continue;
+
+            try {
+                const settings = await providerSettingsRepository.getByProvider(providerId);
+                if (!settings?.api_key || !settings?.base_url) continue;
+                if (settings.custom_models) continue; // already discovered
+
+                console.log(`[ModelStateService] Discovering ${providerId} models from ${settings.base_url}...`);
+                const result = await this.validateApiKey(providerId, settings.api_key, settings.base_url);
+
+                if (!result.success) {
+                    console.warn(`[ModelStateService] ${providerId} discovery failed: ${result.error}`);
+                    continue;
+                }
+                if (!result.models?.length) continue;
+
+                await providerSettingsRepository.upsert(providerId, {
+                    ...settings,
+                    custom_models: JSON.stringify(result.models),
+                });
+                console.log(`[ModelStateService] ${providerId}: ${result.models.length} models now selectable.`);
+
+                // Only fills an empty selection; an existing valid choice is left alone.
+                await this._autoSelectAvailableModels([]);
+                this.emit('state-updated', await this.getLiveState());
+                this.emit('settings-updated');
+            } catch (error) {
+                console.warn(`[ModelStateService] ${providerId} discovery error:`, error.message);
+            }
         }
     }
 

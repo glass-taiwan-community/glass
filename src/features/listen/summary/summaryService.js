@@ -170,12 +170,16 @@ Please build upon this context while analyzing the new conversation segments.
         const basePrompt = getSystemPrompt('pickle_glass_analysis', '', false, this.preContext);
         const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', recentConversation);
 
+        // Captured outside the try so the catch can report which provider actually failed.
+        let lastModelInfo = null;
+
         try {
             if (this.currentSessionId) {
                 await sessionRepository.touch(this.currentSessionId);
             }
 
             const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            lastModelInfo = modelInfo;
             if (!modelInfo || !modelInfo.apiKey) {
                 throw new Error('AI model or API key is not configured.');
             }
@@ -266,7 +270,24 @@ Keep all points concise and build upon previous analysis if provided.
 
             return structuredData;
         } catch (error) {
-            console.error('❌ Error during analysis generation:', error.message);
+            // This failure is otherwise invisible: the caller turns a null/unchanged result into
+            // a silently empty insights panel, so the log is the only signal the user ever gets.
+            // Include enough context to tell "key rejected" apart from "model wrong" without a
+            // second run.
+            const where = lastModelInfo
+                ? `${lastModelInfo.provider}/${lastModelInfo.model}${lastModelInfo.baseUrl ? ` via ${lastModelInfo.baseUrl}` : ''}`
+                : 'no model configured';
+            console.error(`❌ Live insights failed [${where}]: ${error.message}`);
+
+            if (/401|403|unauthorized|forbidden|invalid.*key|authentication/i.test(error.message)) {
+                console.error('   → The provider rejected the credentials. If personal vendor keys have been');
+                console.error('     disabled, configure the LiteLLM proxy in Settings and select one of its models.');
+            }
+            if (process.env.GLASS_DEBUG_LLM) {
+                console.error(error);
+            } else {
+                console.error('   → Set GLASS_DEBUG_LLM=1 for the full stack trace.');
+            }
             return this.previousAnalysisResult; // 에러 시 이전 결과 반환
         }
     }
