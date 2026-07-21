@@ -113,15 +113,17 @@ module.exports = {
     });
 
     // ModelStateService
-    ipcMain.handle('model:validate-key', async (e, { provider, key }) => await modelStateService.handleValidateKey(provider, key));
+    // baseUrl is only populated for gateway providers (e.g. litellm); others ignore it.
+    ipcMain.handle('model:validate-key', async (e, { provider, key, baseUrl }) => await modelStateService.handleValidateKey(provider, key, baseUrl));
     ipcMain.handle('model:get-all-keys', async () => await modelStateService.getAllApiKeys());
-    ipcMain.handle('model:set-api-key', async (e, { provider, key }) => await modelStateService.setApiKey(provider, key));
+    ipcMain.handle('model:set-api-key', async (e, { provider, key, baseUrl }) => await modelStateService.setApiKey(provider, key, baseUrl));
     ipcMain.handle('model:remove-api-key', async (e, provider) => await modelStateService.handleRemoveApiKey(provider));
     ipcMain.handle('model:get-selected-models', async () => await modelStateService.getSelectedModels());
     ipcMain.handle('model:set-selected-model', async (e, { type, modelId }) => await modelStateService.handleSetSelectedModel(type, modelId));
     ipcMain.handle('model:get-available-models', async (e, { type }) => await modelStateService.getAvailableModels(type));
     ipcMain.handle('model:are-providers-configured', async () => await modelStateService.areProvidersConfigured());
     ipcMain.handle('model:get-provider-config', () => modelStateService.getProviderConfig());
+    ipcMain.handle('model:get-base-urls', async () => await modelStateService.getAllBaseUrls());
     ipcMain.handle('model:re-initialize-state', async () => await modelStateService.initialize());
 
     // LocalAIManager 이벤트를 모든 윈도우에 브로드캐스트

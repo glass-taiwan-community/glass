@@ -488,6 +488,7 @@ export class SettingsView extends LitElement {
         saving: { type: Boolean, state: true },
         providerConfig: { type: Object, state: true },
         apiKeys: { type: Object, state: true },
+        baseUrls: { type: Object, state: true },
         availableLlmModels: { type: Array, state: true },
         availableSttModels: { type: Array, state: true },
         selectedLlm: { type: String, state: true },
@@ -514,6 +515,7 @@ export class SettingsView extends LitElement {
         this.shortcuts = {};
         this.firebaseUser = null;
         this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '' };
+        this.baseUrls = {};
         this.providerConfig = {};
         this.isLoading = true;
         this.isContentProtectionOn = true;
@@ -624,9 +626,10 @@ export class SettingsView extends LitElement {
             if (userState && userState.isLoggedIn) this.firebaseUser = userState;
             
             if (modelSettings.success) {
-                const { config, storedKeys, availableLlm, availableStt, selectedModels } = modelSettings.data;
+                const { config, storedKeys, storedBaseUrls, availableLlm, availableStt, selectedModels } = modelSettings.data;
                 this.providerConfig = config;
                 this.apiKeys = storedKeys;
+                this.baseUrls = storedBaseUrls || {};
                 this.availableLlmModels = availableLlm;
                 this.availableSttModels = availableStt;
                 this.selectedLlm = selectedModels.llm;
@@ -697,9 +700,18 @@ export class SettingsView extends LitElement {
         
         // For other providers, use the normal flow
         this.saving = true;
-        const result = await window.api.settingsView.validateKey({ provider, key });
-        
+
+        // Gateway providers (e.g. LiteLLM) need their endpoint alongside the key; the field
+        // is only rendered when providerConfig marks the provider as requiring one.
+        const baseUrlInput = this.shadowRoot.querySelector(`#base-url-input-${provider}`);
+        const baseUrl = baseUrlInput ? baseUrlInput.value.trim() : undefined;
+
+        const result = await window.api.settingsView.validateKey({ provider, key, baseUrl });
+
         if (result.success) {
+            if (baseUrl !== undefined) {
+                this.baseUrls = { ...this.baseUrls, [provider]: baseUrl };
+            }
             await this.refreshModelData();
         } else {
             alert(`Failed to save ${provider} key: ${result.error}`);
@@ -707,12 +719,14 @@ export class SettingsView extends LitElement {
         }
         this.saving = false;
     }
-    
+
     async handleClearKey(provider) {
         console.log(`[SettingsView] handleClearKey: ${provider}`);
         this.saving = true;
         await window.api.settingsView.removeApiKey(provider);
         this.apiKeys = { ...this.apiKeys, [provider]: '' };
+        // Endpoint is cleared server-side too, so mirror that locally.
+        this.baseUrls = { ...this.baseUrls, [provider]: '' };
         await this.refreshModelData();
         this.saving = false;
     }
@@ -1253,9 +1267,16 @@ export class SettingsView extends LitElement {
                         <div class="provider-key-group">
                             <label for="key-input-${id}">${config.name} API Key</label>
                             <input type="password" id="key-input-${id}"
-                                placeholder=${loggedIn ? "Using Pickle's Key" : `Enter ${config.name} API Key`} 
+                                placeholder=${loggedIn ? "Using Pickle's Key" : `Enter ${config.name} API Key`}
                                 .value=${this.apiKeys[id] || ''}
                             >
+                            ${config.requiresBaseUrl ? html`
+                                <label for="base-url-input-${id}">${config.name} Base URL</label>
+                                <input type="text" id="base-url-input-${id}"
+                                    placeholder="https://your-proxy.example.com"
+                                    .value=${this.baseUrls[id] || ''}
+                                >
+                            ` : ''}
                             <div class="key-buttons">
                                <button class="settings-button" @click=${() => this.handleSaveKey(id)} >Save</button>
                                <button class="settings-button danger" @click=${() => this.handleClearKey(id)} }>Clear</button>

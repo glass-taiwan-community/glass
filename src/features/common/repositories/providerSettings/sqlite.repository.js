@@ -36,20 +36,24 @@ function upsert(provider, settings) {
     
     // Use SQLite's UPSERT syntax (INSERT ... ON CONFLICT ... DO UPDATE)
     const stmt = db.prepare(`
-        INSERT INTO provider_settings (provider, api_key, selected_llm_model, selected_stt_model, is_active_llm, is_active_stt, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO provider_settings (provider, api_key, base_url, custom_models, selected_llm_model, selected_stt_model, is_active_llm, is_active_stt, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(provider) DO UPDATE SET
             api_key = excluded.api_key,
+            base_url = excluded.base_url,
+            custom_models = excluded.custom_models,
             selected_llm_model = excluded.selected_llm_model,
             selected_stt_model = excluded.selected_stt_model,
             -- is_active_llm and is_active_stt are NOT updated here
             -- Use setActiveProvider() to change active status
             updated_at = excluded.updated_at
     `);
-    
+
     const result = stmt.run(
         provider,
         settings.api_key || null,
+        settings.base_url || null,
+        settings.custom_models || null,
         settings.selected_llm_model || null,
         settings.selected_stt_model || null,
         0, // is_active_llm - always 0, use setActiveProvider to activate
@@ -73,6 +77,32 @@ function removeAll() {
     const stmt = db.prepare('DELETE FROM provider_settings');
     const result = stmt.run();
     return { changes: result.changes };
+}
+
+/**
+ * Reads a gateway provider's persisted model list.
+ *
+ * Deliberately synchronous: getProviderForModel() in modelStateService resolves a model id
+ * to its provider without awaiting, the same way it does for Ollama. If this were async the
+ * selected model would read as unresolvable on every boot and _autoSelectAvailableModels()
+ * would silently switch the user onto a different provider.
+ *
+ * @param {string} provider - Provider id (e.g. 'litellm')
+ * @returns {Array<{id: string, name: string}>} Persisted models, or [] if none/corrupt
+ */
+function getCustomModels(provider) {
+    const db = sqliteClient.getDb();
+    const row = db.prepare('SELECT custom_models FROM provider_settings WHERE provider = ?').get(provider);
+    if (!row?.custom_models) return [];
+
+    try {
+        const parsed = JSON.parse(row.custom_models);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        // A corrupt cache must never break model resolution for other providers.
+        console.warn(`[ProviderSettings] Malformed custom_models for ${provider}:`, error.message);
+        return [];
+    }
 }
 
 function getRawApiKeys() {
@@ -154,6 +184,7 @@ module.exports = {
     remove,
     removeAll,
     getRawApiKeys,
+    getCustomModels,
     getActiveProvider,
     setActiveProvider,
     getActiveSettings

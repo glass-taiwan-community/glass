@@ -52,10 +52,28 @@ const PROVIDERS = {
   'anthropic': {
       name: 'Anthropic',
       handler: () => require("./providers/anthropic"),
+      // First entry is the default selected during onboarding.
+      // claude-sonnet-4-5 is legacy but still served, and is kept here on purpose:
+      // getProviderForModel() resolves ids against this list, so dropping it would make
+      // an existing user's stored selection unresolvable and silently reselect for them.
       llmModels: [
-          { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+          { id: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
+          { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+          { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+          { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5 (legacy)' },
       ],
       sttModels: [],
+  },
+  'litellm': {
+      name: 'LiteLLM Proxy',
+      handler: () => require("./providers/litellm"),
+      // Populated at runtime from the proxy's /v1/models and persisted to
+      // provider_settings.custom_models - model aliases are deployment-specific,
+      // so there is nothing meaningful to hardcode here.
+      llmModels: [],
+      sttModels: [], // STT keeps using its existing provider.
+      // Signals to the UI that this provider needs an endpoint alongside its key.
+      requiresBaseUrl: true,
   },
   'deepgram': {
     name: 'Deepgram',
@@ -155,6 +173,7 @@ function getProviderClass(providerId) {
     const classNameMap = {
         'openai': 'OpenAIProvider',
         'anthropic': 'AnthropicProvider',
+        'litellm': 'LiteLLMProvider',
         'gemini': 'GeminiProvider',
         'deepgram': 'DeepgramProvider',
         'ollama': 'OllamaProvider',
@@ -170,7 +189,9 @@ function getAvailableProviders() {
   const llm = [];
   for (const [id, provider] of Object.entries(PROVIDERS)) {
       if (provider.sttModels.length > 0) stt.push(id);
-      if (provider.llmModels.length > 0) llm.push(id);
+      // Gateway providers discover their models at runtime, so an empty static
+      // list must not be read as "no LLM support".
+      if (provider.llmModels.length > 0 || provider.requiresBaseUrl) llm.push(id);
   }
   return { stt: [...new Set(stt)], llm: [...new Set(llm)] };
 }

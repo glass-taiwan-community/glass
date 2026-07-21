@@ -93,6 +93,14 @@ const LATEST_SCHEMA = {
         columns: [
             { name: 'provider', type: 'TEXT NOT NULL' },
             { name: 'api_key', type: 'TEXT' },
+            // Custom endpoint for gateway-style providers (e.g. LiteLLM proxy).
+            // Stored in plaintext: it is not a secret, and encrypting it would make
+            // encryptionService.looksEncrypted() ambiguous when reading the row back.
+            { name: 'base_url', type: 'TEXT' },
+            // JSON array of {id, name} discovered from a gateway that exposes a
+            // deployment-specific model list. Persisted so that the *synchronous*
+            // getProviderForModel() can resolve those ids after a restart.
+            { name: 'custom_models', type: 'TEXT' },
             { name: 'selected_llm_model', type: 'TEXT' },
             { name: 'selected_stt_model', type: 'TEXT' },
             { name: 'is_active_llm', type: 'INTEGER DEFAULT 0' },

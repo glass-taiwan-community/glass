@@ -46,6 +46,12 @@ const providerSettingsRepositoryAdapter = {
         // as it's part of the local-first boot sequence.
         return await sqliteRepository.getRawApiKeys();
     },
+
+    // NOT async, unlike every other method here: the caller (getProviderForModel)
+    // is synchronous. See the note on the repository implementation.
+    getCustomModels(provider) {
+        return sqliteRepository.getCustomModels(provider);
+    },
     
     async getActiveProvider(type) {
         const repo = getBaseRepository();
