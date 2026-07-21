@@ -52,8 +52,15 @@ const PROVIDERS = {
   'anthropic': {
       name: 'Anthropic',
       handler: () => require("./providers/anthropic"),
+      // First entry is the default selected during onboarding.
+      // claude-sonnet-4-5 is legacy but still served, and is kept here on purpose:
+      // getProviderForModel() resolves ids against this list, so dropping it would make
+      // an existing user's stored selection unresolvable and silently reselect for them.
       llmModels: [
-          { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+          { id: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
+          { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+          { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+          { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5 (legacy)' },
       ],
       sttModels: [],
   },
