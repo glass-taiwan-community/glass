@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('api', {
   apiKeyHeader: {
     // Model & Provider Management
     getProviderConfig: () => ipcRenderer.invoke('model:get-provider-config'),
+    // Stored endpoints for gateway providers, so an environment-seeded URL is pre-filled.
+    getBaseUrls: () => ipcRenderer.invoke('model:get-base-urls'),
     // LocalAI 통합 API
     getLocalAIStatus: (service) => ipcRenderer.invoke('localai:get-status', service),
     installLocalAI: (service, options) => ipcRenderer.invoke('localai:install', { service, options }),

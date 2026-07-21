@@ -4,6 +4,7 @@ export class ApiKeyHeader extends LitElement {
     //////// after_modelStateService ////////
     static properties = {
         llmApiKey: { type: String },
+        llmBaseUrl: { type: String },
         sttApiKey: { type: String },
         llmProvider: { type: String },
         sttProvider: { type: String },
@@ -332,6 +333,8 @@ export class ApiKeyHeader extends LitElement {
         this.messageTimestamp = 0;
         //////// after_modelStateService ////////
         this.llmApiKey = '';
+        this.llmBaseUrl = '';
+        this.storedBaseUrls = {};
         this.sttApiKey = '';
         this.llmProvider = 'openai';
         this.sttProvider = 'openai';
@@ -427,9 +430,10 @@ export class ApiKeyHeader extends LitElement {
         if (!window.api?.apiKeyHeader) return;
 
         try {
-            const [config, ollamaStatus] = await Promise.all([
+            const [config, ollamaStatus, baseUrls] = await Promise.all([
                 window.api.apiKeyHeader.getProviderConfig(),
                 window.api.apiKeyHeader.getOllamaStatus(),
+                window.api.apiKeyHeader.getBaseUrls(),
             ]);
 
             const llmProviders = [];
@@ -438,11 +442,13 @@ export class ApiKeyHeader extends LitElement {
             for (const id in config) {
                 // 'openai-glass' 같은 가상 Provider는 UI에 표시하지 않음
                 if (id.includes('-glass')) continue;
-                const hasLlmModels = config[id].llmModels.length > 0 || id === 'ollama';
+                // Gateway providers discover their models from the proxy at runtime, so an
+                // empty static list must not hide them from the picker.
+                const hasLlmModels = config[id].llmModels.length > 0 || id === 'ollama' || config[id].requiresBaseUrl;
                 const hasSttModels = config[id].sttModels.length > 0 || id === 'whisper';
 
                 if (hasLlmModels) {
-                    llmProviders.push({ id, name: config[id].name });
+                    llmProviders.push({ id, name: config[id].name, requiresBaseUrl: !!config[id].requiresBaseUrl });
                 }
                 if (hasSttModels) {
                     sttProviders.push({ id, name: config[id].name });
@@ -450,9 +456,15 @@ export class ApiKeyHeader extends LitElement {
             }
 
             this.providers = { llm: llmProviders, stt: sttProviders };
+            // Pre-fill an endpoint that was provisioned via environment variables so the user
+            // does not have to retype what the fleet config already supplied.
+            this.storedBaseUrls = baseUrls || {};
 
             // 기본 선택 값 설정
-            if (llmProviders.length > 0) this.llmProvider = llmProviders[0].id;
+            if (llmProviders.length > 0) {
+                this.llmProvider = llmProviders[0].id;
+                this.llmBaseUrl = this.storedBaseUrls[this.llmProvider] || '';
+            }
             if (sttProviders.length > 0) this.sttProvider = sttProviders[0].id;
 
             // Ollama 상태 및 모델 제안 로드
@@ -569,6 +581,8 @@ export class ApiKeyHeader extends LitElement {
         this.llmProvider = newProvider;
         this.errorMessage = '';
         this.successMessage = '';
+        // Endpoints are per-provider, so swap in whatever is stored for the new one.
+        this.llmBaseUrl = this.storedBaseUrls[newProvider] || '';
 
         if (['openai', 'gemini'].includes(this.llmProvider)) {
             this.sttProvider = this.llmProvider;
@@ -1474,6 +1488,14 @@ export class ApiKeyHeader extends LitElement {
         this.requestUpdate();
     }
 
+    /**
+     * True when the selected LLM provider is a gateway that needs an endpoint as well as a key.
+     * @returns {boolean}
+     */
+    get llmRequiresBaseUrl() {
+        return !!this.providers.llm.find(p => p.id === this.llmProvider)?.requiresBaseUrl;
+    }
+
     async handleSubmit() {
         console.log('[ApiKeyHeader] handleSubmit: Submitting...');
 
@@ -1528,9 +1550,14 @@ export class ApiKeyHeader extends LitElement {
                     throw new Error('Please enter LLM API key');
                 }
 
+                if (this.llmRequiresBaseUrl && !this.llmBaseUrl.trim()) {
+                    throw new Error('Please enter the proxy base URL');
+                }
+
                 llmResult = await window.api.apiKeyHeader.validateKey({
                     provider: this.llmProvider,
                     key: this.llmApiKey.trim(),
+                    baseUrl: this.llmRequiresBaseUrl ? this.llmBaseUrl.trim() : undefined,
                 });
 
                 if (llmResult.success) {
@@ -1542,6 +1569,9 @@ export class ApiKeyHeader extends LitElement {
                             modelId: providerConfig.llmModels[0].id,
                         });
                     }
+                    // Gateway providers have no static model list; their catalogue is
+                    // discovered during validation and a model is picked by the
+                    // auto-selection that setApiKey() runs after storing the key.
                 }
             }
 
@@ -1929,6 +1959,7 @@ export class ApiKeyHeader extends LitElement {
             this.installingModel ||
             Object.keys(this.whisperInstallingModels).length > 0 ||
             (llmNeedsApiKey && !this.llmApiKey.trim()) ||
+            (this.llmRequiresBaseUrl && !this.llmBaseUrl.trim()) ||
             (sttNeedsApiKey && !this.sttApiKey.trim()) ||
             (llmNeedsModel && !this.selectedLlmModel?.trim()) ||
             (sttNeedsModel && !this.selectedSttModel);
@@ -1981,6 +2012,21 @@ export class ApiKeyHeader extends LitElement {
                                           }}
                                           ?disabled=${this.isLoading}
                                       />
+                                      ${this.llmRequiresBaseUrl
+                                          ? html`
+                                                <input
+                                                    type="text"
+                                                    class="api-input ${this.llmError ? 'invalid' : ''}"
+                                                    placeholder="${llmProviderName} base URL (https://...)"
+                                                    .value=${this.llmBaseUrl}
+                                                    @input=${e => {
+                                                        this.llmBaseUrl = e.target.value;
+                                                        this.llmError = '';
+                                                    }}
+                                                    ?disabled=${this.isLoading}
+                                                />
+                                            `
+                                          : ''}
                                       ${this.llmError ? html`<div class="inline-error-message">${this.llmError}</div>` : ''}
                                   </div>
                               `}

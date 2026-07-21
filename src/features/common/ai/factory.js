@@ -57,6 +57,17 @@ const PROVIDERS = {
       ],
       sttModels: [],
   },
+  'litellm': {
+      name: 'LiteLLM Proxy',
+      handler: () => require("./providers/litellm"),
+      // Populated at runtime from the proxy's /v1/models and persisted to
+      // provider_settings.custom_models - model aliases are deployment-specific,
+      // so there is nothing meaningful to hardcode here.
+      llmModels: [],
+      sttModels: [], // STT keeps using its existing provider.
+      // Signals to the UI that this provider needs an endpoint alongside its key.
+      requiresBaseUrl: true,
+  },
   'deepgram': {
     name: 'Deepgram',
     handler: () => require("./providers/deepgram"),
@@ -155,6 +166,7 @@ function getProviderClass(providerId) {
     const classNameMap = {
         'openai': 'OpenAIProvider',
         'anthropic': 'AnthropicProvider',
+        'litellm': 'LiteLLMProvider',
         'gemini': 'GeminiProvider',
         'deepgram': 'DeepgramProvider',
         'ollama': 'OllamaProvider',
@@ -170,7 +182,9 @@ function getAvailableProviders() {
   const llm = [];
   for (const [id, provider] of Object.entries(PROVIDERS)) {
       if (provider.sttModels.length > 0) stt.push(id);
-      if (provider.llmModels.length > 0) llm.push(id);
+      // Gateway providers discover their models at runtime, so an empty static
+      // list must not be read as "no LLM support".
+      if (provider.llmModels.length > 0 || provider.requiresBaseUrl) llm.push(id);
   }
   return { stt: [...new Set(stt)], llm: [...new Set(llm)] };
 }

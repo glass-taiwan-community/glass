@@ -281,6 +281,7 @@ class AskService {
             
             const streamingLLM = createStreamingLLM(modelInfo.provider, {
                 apiKey: modelInfo.apiKey,
+                baseUrl: modelInfo.baseUrl,
                 model: modelInfo.model,
                 temperature: 0.7,
                 maxTokens: 2048,

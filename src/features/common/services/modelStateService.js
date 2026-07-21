@@ -18,6 +18,7 @@ class ModelStateService extends EventEmitter {
         console.log('[ModelStateService] Initializing one-time setup...');
         await this._initializeEncryption();
         await this._runMigrations();
+        await this._seedFromEnvironment();
         this.setupLocalAIStateSync();
         await this._autoSelectAvailableModels([], true);
         console.log('[ModelStateService] One-time setup complete.');
@@ -94,6 +95,50 @@ class ModelStateService extends EventEmitter {
         }
     }
     
+    /**
+     * Seeds gateway credentials from the environment so a fleet can be provisioned centrally
+     * (src/index.js loads dotenv, so a .env file works even though macOS GUI apps do not
+     * inherit the shell environment).
+     *
+     * Two deliberate constraints, both of which would be bugs if violated:
+     *
+     *  1. Writes go straight to the repository rather than through setApiKey(). setApiKey()
+     *     performs network validation, which on this code path would run on every boot and
+     *     would fail outright when the machine is offline.
+     *  2. It never calls setSelectedModel(). Seeding must not hijack a model the user already
+     *     chose; auto-selection later picks LiteLLM up only if nothing valid is selected.
+     *
+     * Stored values always win over the environment, so a GUI edit is not silently reverted
+     * on the next launch.
+     */
+    async _seedFromEnvironment() {
+        const envKey = process.env.LITELLM_API_KEY?.trim();
+        const envBaseUrl = process.env.LITELLM_BASE_URL?.trim();
+
+        if (!envKey && !envBaseUrl) return;
+
+        try {
+            const existing = await providerSettingsRepository.getByProvider('litellm') || {};
+
+            const seededKey = existing.api_key || envKey || null;
+            const seededBaseUrl = existing.base_url || envBaseUrl || null;
+
+            if (seededKey === (existing.api_key || null) && seededBaseUrl === (existing.base_url || null)) {
+                return; // Everything already stored; nothing to seed.
+            }
+
+            await providerSettingsRepository.upsert('litellm', {
+                ...existing,
+                api_key: seededKey,
+                base_url: seededBaseUrl,
+            });
+            console.log('[ModelStateService] Seeded LiteLLM settings from environment.');
+        } catch (error) {
+            // Seeding is a convenience; never let it block startup.
+            console.warn('[ModelStateService] LiteLLM environment seeding failed:', error.message);
+        }
+    }
+
     setupLocalAIStateSync() {
         const localAIManager = require('./localAIManager');
         localAIManager.on('state-changed', (service, status) => {
@@ -113,9 +158,11 @@ class ModelStateService extends EventEmitter {
     async getLiveState() {
         const providerSettings = await providerSettingsRepository.getAll();
         const apiKeys = {};
+        const baseUrls = {};
         Object.keys(PROVIDERS).forEach(provider => {
             const setting = providerSettings.find(s => s.provider === provider);
             apiKeys[provider] = setting?.api_key || null;
+            baseUrls[provider] = setting?.base_url || null;
         });
 
         const activeSettings = await providerSettingsRepository.getActiveSettings();
@@ -124,7 +171,7 @@ class ModelStateService extends EventEmitter {
             stt: activeSettings.stt?.selected_stt_model || null
         };
         
-        return { apiKeys, selectedModels };
+        return { apiKeys, baseUrls, selectedModels };
     }
 
     async _autoSelectAvailableModels(forceReselectionForTypes = [], isInitialBoot = false) {
@@ -204,15 +251,25 @@ class ModelStateService extends EventEmitter {
         }
     }
 
-    async setApiKey(provider, key) {
+    /**
+     * Stores a provider's credentials after validating them.
+     *
+     * @param {string} provider - Provider id
+     * @param {string} key - API key
+     * @param {string} [baseUrl] - Custom endpoint; only meaningful for gateway providers
+     *                             (PROVIDERS[x].requiresBaseUrl). Ignored by all others, so
+     *                             existing two-argument callers are unaffected.
+     */
+    async setApiKey(provider, key, baseUrl) {
         console.log(`[ModelStateService] setApiKey for ${provider}`);
         if (!provider) {
             throw new Error('Provider is required');
         }
 
         // 'openai-glass'는 자체 인증 키를 사용하므로 유효성 검사를 건너뜁니다.
+        let validationResult = { success: true };
         if (provider !== 'openai-glass') {
-            const validationResult = await this.validateApiKey(provider, key);
+            validationResult = await this.validateApiKey(provider, key, baseUrl);
             if (!validationResult.success) {
                 console.warn(`[ModelStateService] API key validation failed for ${provider}: ${validationResult.error}`);
                 return validationResult;
@@ -221,8 +278,21 @@ class ModelStateService extends EventEmitter {
 
         const finalKey = (provider === 'ollama' || provider === 'whisper') ? 'local' : key;
         const existingSettings = await providerSettingsRepository.getByProvider(provider) || {};
-        await providerSettingsRepository.upsert(provider, { ...existingSettings, api_key: finalKey });
-        
+        const newSettings = { ...existingSettings, api_key: finalKey };
+
+        if (PROVIDERS[provider]?.requiresBaseUrl) {
+            newSettings.base_url = baseUrl || existingSettings.base_url || null;
+
+            // Validation doubles as model discovery for gateway providers. Persisting the
+            // catalogue is what lets the synchronous getProviderForModel() resolve these
+            // deployment-specific ids after a restart.
+            if (validationResult.models?.length > 0) {
+                newSettings.custom_models = JSON.stringify(validationResult.models);
+            }
+        }
+
+        await providerSettingsRepository.upsert(provider, newSettings);
+
         // 키가 추가/변경되었으므로, 해당 provider의 모델을 자동 선택할 수 있는지 확인
         await this._autoSelectAvailableModels([]);
         
@@ -242,10 +312,29 @@ class ModelStateService extends EventEmitter {
         return apiKeys;
     }
 
+    /**
+     * Custom endpoints per provider, for pre-filling the settings UI.
+     * Kept separate from getAllApiKeys() so that method's shape (provider -> key) is unchanged.
+     * @returns {Promise<Object.<string, string|null>>}
+     */
+    async getAllBaseUrls() {
+        const allSettings = await providerSettingsRepository.getAll();
+        const baseUrls = {};
+        allSettings.forEach(s => {
+            if (s.base_url) baseUrls[s.provider] = s.base_url;
+        });
+        return baseUrls;
+    }
+
     async removeApiKey(provider) {
         const setting = await providerSettingsRepository.getByProvider(provider);
         if (setting && setting.api_key) {
-            await providerSettingsRepository.upsert(provider, { ...setting, api_key: null });
+            // Clearing a gateway provider must also drop its endpoint and discovered model
+            // catalogue, otherwise stale model ids keep resolving to an unusable provider.
+            const cleared = PROVIDERS[provider]?.requiresBaseUrl
+                ? { ...setting, api_key: null, base_url: null, custom_models: null }
+                : { ...setting, api_key: null };
+            await providerSettingsRepository.upsert(provider, cleared);
             await this._autoSelectAvailableModels(['llm', 'stt']);
             this.emit('state-updated', await this.getLiveState());
             this.emit('settings-updated');
@@ -291,6 +380,13 @@ class ModelStateService extends EventEmitter {
         if (type === 'llm') {
             const installedModels = ollamaModelRepository.getInstalledModels();
             if (installedModels.some(m => m.name === modelId)) return 'ollama';
+
+            // Gateway models are discovered at runtime, so they are resolved from the
+            // persisted catalogue rather than the static PROVIDERS lists. Without this the
+            // selected model would read as invalid after every restart and
+            // _autoSelectAvailableModels() would silently move the user off LiteLLM.
+            const litellmModels = providerSettingsRepository.getCustomModels('litellm');
+            if (litellmModels.some(m => m.id === modelId)) return 'litellm';
         }
         return null;
     }
@@ -345,6 +441,8 @@ class ModelStateService extends EventEmitter {
             if (providerId === 'ollama' && type === 'llm') {
                 const installed = ollamaModelRepository.getInstalledModels();
                 available.push(...installed.map(m => ({ id: m.name, name: m.name })));
+            } else if (providerId === 'litellm' && type === 'llm') {
+                available.push(...providerSettingsRepository.getCustomModels('litellm'));
             } else if (PROVIDERS[providerId]?.[modelListKey]) {
                 available.push(...PROVIDERS[providerId][modelListKey]);
             }
@@ -363,12 +461,20 @@ class ModelStateService extends EventEmitter {
             provider: activeSetting.provider,
             model: model,
             apiKey: activeSetting.api_key,
+            // Only gateway providers populate this; every other provider ignores it.
+            baseUrl: activeSetting.base_url || null,
         };
     }
 
     // --- 핸들러 및 유틸리티 메서드 ---
 
-    async validateApiKey(provider, key) {
+    /**
+     * @param {string} provider - Provider id
+     * @param {string} key - API key
+     * @param {string} [baseUrl] - Custom endpoint, forwarded only to gateway providers
+     * @returns {Promise<{success: boolean, error?: string, models?: Array<object>}>}
+     */
+    async validateApiKey(provider, key, baseUrl) {
         if (!key || (key.trim() === '' && provider !== 'ollama' && provider !== 'whisper')) {
             return { success: false, error: 'API key cannot be empty.' };
         }
@@ -377,7 +483,11 @@ class ModelStateService extends EventEmitter {
             return { success: true };
         }
         try {
-            return await ProviderClass.validateApiKey(key);
+            // Only gateway providers take a second argument; the rest have a one-arg
+            // signature and would ignore it anyway.
+            return PROVIDERS[provider]?.requiresBaseUrl
+                ? await ProviderClass.validateApiKey(key, baseUrl)
+                : await ProviderClass.validateApiKey(key);
         } catch (error) {
             return { success: false, error: 'An unexpected error occurred during validation.' };
         }
@@ -404,8 +514,8 @@ class ModelStateService extends EventEmitter {
     }
 
     /*-------------- Compatibility Helpers --------------*/
-    async handleValidateKey(provider, key) {
-        return await this.setApiKey(provider, key);
+    async handleValidateKey(provider, key, baseUrl) {
+        return await this.setApiKey(provider, key, baseUrl);
     }
 
     async handleSetSelectedModel(type, modelId) {
@@ -416,11 +526,21 @@ class ModelStateService extends EventEmitter {
         if (this.isLoggedInWithFirebase()) return true;
         const allSettings = await providerSettingsRepository.getAll();
         const apiKeyMap = {};
-        allSettings.forEach(s => apiKeyMap[s.provider] = s.api_key);
+        const baseUrlMap = {};
+        allSettings.forEach(s => {
+            apiKeyMap[s.provider] = s.api_key;
+            baseUrlMap[s.provider] = s.base_url;
+        });
         // LLM
         const hasLlmKey = Object.entries(apiKeyMap).some(([provider, key]) => {
             if (!key) return false;
             if (provider === 'whisper') return false; // whisper는 LLM 없음
+            if (PROVIDERS[provider]?.requiresBaseUrl) {
+                // A gateway provider has no static model list, so "configured" means it has an
+                // endpoint AND a catalogue discovered during validation. Checking llmModels here
+                // would report a fully working proxy as unconfigured forever.
+                return !!baseUrlMap[provider] && providerSettingsRepository.getCustomModels(provider).length > 0;
+            }
             return PROVIDERS[provider]?.llmModels?.length > 0;
         });
         // STT

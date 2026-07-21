@@ -112,6 +112,7 @@ Provide 2-3 sentences explaining the context and implications.
             const { createLLM } = require('../../common/ai/factory');
             const llm = createLLM(modelInfo.provider, {
                 apiKey: modelInfo.apiKey,
+                baseUrl: modelInfo.baseUrl,
                 model: modelInfo.model,
                 temperature: 0.7,
                 maxTokens: 1024,
@@ -222,6 +223,7 @@ Keep all points concise and build upon previous analysis if provided.
 
             const llm = createLLM(modelInfo.provider, {
                 apiKey: modelInfo.apiKey,
+                baseUrl: modelInfo.baseUrl,
                 model: modelInfo.model,
                 temperature: 0.7,
                 maxTokens: 1024,
