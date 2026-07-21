@@ -498,6 +498,16 @@ class ModelStateService extends EventEmitter {
         const available = [];
         const modelListKey = type === 'llm' ? 'llmModels' : 'sttModels';
 
+        // Only expose claude-sonnet-4-6 through the proxy.
+        // Filtering here prevents the static Anthropic/OpenAI/etc. lists from
+        // appearing alongside proxy models with the same underlying name.
+        const litellmModels = type === 'llm'
+            ? providerSettingsRepository.getCustomModels('litellm')
+                  .filter(m => m.id === 'anthropic/claude-sonnet-4-6' || m.id.endsWith('/claude-sonnet-4-6'))
+                  .map(m => ({ id: m.id, name: 'Claude Sonnet 4.6' }))
+            : [];
+        const litellmConfigured = litellmModels.length > 0;
+
         for (const setting of allSettings) {
             if (!setting.api_key) continue;
 
@@ -506,7 +516,10 @@ class ModelStateService extends EventEmitter {
                 const installed = ollamaModelRepository.getInstalledModels();
                 available.push(...installed.map(m => ({ id: m.name, name: m.name })));
             } else if (providerId === 'litellm' && type === 'llm') {
-                available.push(...providerSettingsRepository.getCustomModels('litellm'));
+                available.push(...litellmModels);
+            } else if (type === 'llm' && litellmConfigured) {
+                // LiteLLM proxy is configured — suppress static provider models to avoid
+                // showing identically-named entries that would route around the proxy.
             } else if (PROVIDERS[providerId]?.[modelListKey]) {
                 available.push(...PROVIDERS[providerId][modelListKey]);
             }
