@@ -73,20 +73,38 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
     ws.onopen = () => {
       console.log("WebSocket session opened.");
 
-      const model = config.model || 'gpt-realtime-whisper';
+      const model = config.model || 'gpt-4o-mini-transcribe';
 
-      // gpt-realtime-whisper uses the newer flat session config format;
-      // other OpenAI transcription models use the legacy nested audio.input format.
-      const sessionConfig = model === 'gpt-realtime-whisper'
-        ? {
-            type: 'session.update',
-            session: {
-              input_audio_format: 'pcm16',
-              input_audio_noise_reduction: { type: 'near_field' },
-              input_audio_transcription: {
+      // Realtime GA transcription schema: `session.type` is required and all audio
+      // settings live under `session.audio.input`. The pre-GA flat shape
+      // (input_audio_format / input_audio_transcription / top-level turn_detection)
+      // is rejected outright by this endpoint — it answers
+      // "Unknown parameter: 'session.input_audio_format'" — so there is no model
+      // for which sending it is correct.
+      const sessionConfig = {
+        type: 'session.update',
+        session: {
+          type: 'transcription',
+          audio: {
+            input: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000,
+              },
+              transcription: {
                 model,
+                prompt: config.prompt || '',
                 language: language || 'en',
               },
+              noise_reduction: {
+                type: 'near_field',
+              },
+              // Server VAD is what produces the
+              // conversation.item.input_audio_transcription.completed events that
+              // sttService turns into finalized utterances. Streaming-only models
+              // such as gpt-realtime-whisper reject turn_detection and never commit
+              // the audio buffer on their own, so they are deliberately not offered
+              // in the STT catalog (see factory.js).
               turn_detection: {
                 type: 'server_vad',
                 threshold: 0.5,
@@ -94,35 +112,9 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
                 silence_duration_ms: 500,
               },
             },
-          }
-        : {
-            type: 'session.update',
-            session: {
-              type: 'transcription',
-              audio: {
-                input: {
-                  format: {
-                    type: 'audio/pcm',
-                    rate: 24000,
-                  },
-                  transcription: {
-                    model,
-                    prompt: config.prompt || '',
-                    language: language || 'en',
-                  },
-                  noise_reduction: {
-                    type: 'near_field',
-                  },
-                  turn_detection: {
-                    type: 'server_vad',
-                    threshold: 0.5,
-                    prefix_padding_ms: 200,
-                    silence_duration_ms: 500,
-                  },
-                },
-              },
-            },
-          };
+          },
+        },
+      };
       
       if (sttDebug) console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
       ws.send(JSON.stringify(sessionConfig));
