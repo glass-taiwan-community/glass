@@ -25,7 +25,10 @@ const PROVIDERS = {
           { id: 'gpt-4.1', name: 'GPT-4.1' },
       ],
       sttModels: [
-          { id: 'gpt-realtime-whisper', name: 'GPT Realtime Whisper' },
+          // gpt-realtime-whisper is intentionally absent: it is a streaming-only
+          // model that rejects turn_detection on the realtime endpoint and never
+          // emits a transcription.completed event, so Glass would show live partial
+          // text but never finalize an utterance into the session history.
           { id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe' },
       ],
   },
@@ -37,7 +40,7 @@ const PROVIDERS = {
           { id: 'gpt-4.1-glass', name: 'GPT-4.1 (glass)' },
       ],
       sttModels: [
-          { id: 'gpt-realtime-whisper-glass', name: 'GPT Realtime Whisper (glass)' },
+          // See the note on the 'openai' sttModels list above.
           { id: 'gpt-4o-mini-transcribe-glass', name: 'GPT-4o Mini Transcribe (glass)' },
       ],
   },
