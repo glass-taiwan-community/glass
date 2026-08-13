@@ -3,6 +3,10 @@
 const { createClient, LiveTranscriptionEvents } = require('@deepgram/sdk');
 const WebSocket = require('ws');
 
+// Deepgram drops an idle connection after 10s (NET-0001); the docs recommend a
+// 3-5s heart-beat. 5s leaves headroom without adding meaningful traffic.
+const KEEP_ALIVE_MS = 5_000;
+
 /**
  * Deepgram Provider 클래스. API 키 유효성 검사를 담당합니다.
  */
@@ -48,8 +52,20 @@ function createSTT({
       sample_rate: sampleRate.toString(),
       language,
       smart_format: 'true',
-      interim_results: 'true',
+      interim_results: 'true',   // required for utterance_end_ms, and drives live partials
       channels: '1',
+      // Turn-boundary signals. Without these Deepgram never emits speech_final or
+      // UtteranceEnd, and sttService has nothing to finalize an utterance on.
+      //
+      // endpointing=200 is deliberately below Deepgram's documented 300-500ms
+      // note-taking recommendation. Measured against real podcast audio, 500ms
+      // yielded 1 speech_final per 68s (too few to reach the summary threshold in
+      // reasonable time) while 200ms yielded 6 per 62s with comparable turn lengths.
+      endpointing: '200',
+      // 1000 is the documented minimum. UtteranceEnd fires roughly once a minute on
+      // continuous speech, so it is a safety net rather than the primary boundary.
+      utterance_end_ms: '1000',
+      vad_events: 'true',
     });
   
     const url = `wss://api.deepgram.com/v1/listen?${qs}`;
@@ -65,28 +81,53 @@ function createSTT({
         reject(new Error('DG open timeout (10 s)'));
       }, 10_000);
   
+      // Deepgram closes an idle socket with NET-0001 after 10s without audio or a
+      // KeepAlive. sttService's shared heart-beat runs on a 60s interval and is gated
+      // to OpenAI, so it cannot cover this. The session owns its own timer instead,
+      // which leaves every other provider's behaviour untouched.
+      let keepAliveTimer = null;
+      const stopKeepAlive = () => {
+        if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+      };
+
       ws.on('open', () => {
         clearTimeout(to);
+
+        // Must be a text frame - Deepgram mishandles KeepAlive sent as binary.
+        keepAliveTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'KeepAlive' }));
+          }
+        }, KEEP_ALIVE_MS);
+
         resolve({
           sendRealtimeInput: (buf) => ws.send(buf),
-          close: () => ws.close(1000, 'client'),
+          close: () => {
+            stopKeepAlive();
+            try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch { /* already closing */ }
+            ws.close(1000, 'client');
+          },
         });
       });
   
       ws.on('message', raw => {
         let msg;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
-        if (msg.channel?.alternatives?.[0]?.transcript !== undefined) {
+        // UtteranceEnd carries no channel.alternatives, so the transcript check alone
+        // would drop it here and sttService's fallback boundary would be dead code.
+        if (msg.type === 'UtteranceEnd' || msg.channel?.alternatives?.[0]?.transcript !== undefined) {
           callbacks.onmessage?.({ provider: 'deepgram', ...msg });
         }
       });
   
-      ws.on('close', (code, reason) =>
-        callbacks.onclose?.({ code, reason: reason.toString() })
-      );
+      ws.on('close', (code, reason) => {
+        stopKeepAlive();
+        callbacks.onclose?.({ code, reason: reason.toString() });
+      });
   
       ws.on('error', err => {
         clearTimeout(to);
+        stopKeepAlive();
         callbacks.onerror?.(err);
         reject(err);
       });

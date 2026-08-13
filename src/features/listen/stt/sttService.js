@@ -238,24 +238,54 @@ class SttService {
                 
             // Deepgram 
             } else if (this.modelInfo.provider === 'deepgram') {
+                // UtteranceEnd is the fallback boundary: it arrives with no transcript, so it
+                // must be handled before the text guard below. last_word_end === -1 means the
+                // result was already finalized before the gap condition, so it is not a boundary.
+                if (message.type === 'UtteranceEnd') {
+                    if (message.last_word_end === -1) return;
+                    // Drop the in-flight interim before flushing. UtteranceEnd marks a gap after
+                    // the last *finalized* word, so provisional text is not part of this boundary
+                    // and Deepgram will re-send it as a final. Flushing it here published guesses
+                    // as history: an interim "Alterant" became a turn, then arrived corrected as
+                    // "Utterance" and became a second turn.
+                    this.myCurrentUtterance = '';
+                    console.log('[SttService-Me-Deepgram] UtteranceEnd -> flushing');
+                    this.flushMyCompletion();
+                    return;
+                }
+
                 const text = message.channel?.alternatives?.[0]?.transcript;
                 if (!text || text.trim().length === 0) return;
 
                 const isFinal = message.is_final;
-                console.log(`[SttService-Me-Deepgram] Received: isFinal=${isFinal}, text="${text}"`);
+                // Checked independently of is_final, never nested inside it: Deepgram documents
+                // frames carrying is_final:false with speech_final:true, and treating those as
+                // interims would discard the very boundary this branch exists to catch.
+                const speechFinal = message.speech_final === true;
+                console.log(`[SttService-Me-Deepgram] Received: isFinal=${isFinal}, speechFinal=${speechFinal}, text="${text}"`);
 
-                if (isFinal) {
-                    // 최종 결과가 도착하면, 현재 진행중인 부분 발화는 비우고
-                    // 최종 텍스트로 debounce를 실행합니다.
-                    this.myCurrentUtterance = ''; 
-                    this.debounceMyCompletion(text); 
-                } else {
-                    // 부분 결과(interim)인 경우, 화면에 실시간으로 업데이트합니다.
-                    if (this.myCompletionTimer) clearTimeout(this.myCompletionTimer);
+                if (speechFinal) {
+                    // Endpointing detected end of speech - this is a real turn boundary.
+                    // Reuse debounce to append the text, then cancel the timer it just armed
+                    // before flushing. flushMyCompletion() nulls myCompletionTimer without
+                    // clearTimeout, so skipping this would orphan a live handle that fires
+                    // 2s later against whatever has since been buffered.
+                    this.myCurrentUtterance = '';
+                    this.debounceMyCompletion(text);
+                    clearTimeout(this.myCompletionTimer);
                     this.myCompletionTimer = null;
-
+                    this.flushMyCompletion();
+                } else if (isFinal) {
+                    // Segment text is now immutable, but speech is still ongoing. Accumulate it
+                    // and let the backstop timer fire only if no boundary signal ever arrives.
+                    this.myCurrentUtterance = '';
+                    this.debounceMyCompletion(text);
+                } else {
+                    // Interim: update the live display only. Deliberately does NOT clear the
+                    // backstop timer - doing so was the original defect, since Deepgram's ~1/s
+                    // interims cancelled the pending flush indefinitely during continuous speech.
                     this.myCurrentUtterance = text;
-                    
+
                     const continuousText = (this.myCompletionBuffer + ' ' + this.myCurrentUtterance).trim();
 
                     this.sendToRenderer('stt-update', {
@@ -266,7 +296,7 @@ class SttService {
                         timestamp: Date.now(),
                     });
                 }
-                
+
             } else {
                 const type = message.type;
                 const text = message.transcript || message.delta || (message.alternatives && message.alternatives[0]?.transcript) || '';
@@ -380,20 +410,40 @@ class SttService {
 
             // Deepgram
             } else if (this.modelInfo.provider === 'deepgram') {
+                // Mirrors the "Me" branch above - see the comments there for the rationale.
+                if (message.type === 'UtteranceEnd') {
+                    if (message.last_word_end === -1) return;
+                    // See the "Me" branch: discard provisional text so UtteranceEnd cannot
+                    // publish an interim guess as a finished turn.
+                    this.theirCurrentUtterance = '';
+                    console.log('[SttService-Them-Deepgram] UtteranceEnd -> flushing');
+                    this.flushTheirCompletion();
+                    return;
+                }
+
                 const text = message.channel?.alternatives?.[0]?.transcript;
                 if (!text || text.trim().length === 0) return;
 
                 const isFinal = message.is_final;
+                const speechFinal = message.speech_final === true;
+                // This branch previously had no logging at all, which made the "Them" channel
+                // look inert in session logs even while it was transcribing normally.
+                console.log(`[SttService-Them-Deepgram] Received: isFinal=${isFinal}, speechFinal=${speechFinal}, text="${text}"`);
 
-                if (isFinal) {
-                    this.theirCurrentUtterance = ''; 
-                    this.debounceTheirCompletion(text); 
-                } else {
-                    if (this.theirCompletionTimer) clearTimeout(this.theirCompletionTimer);
+                if (speechFinal) {
+                    // See the "Me" branch: cancel the timer debounce just armed, otherwise
+                    // flushTheirCompletion() orphans a live handle that fires 2s later.
+                    this.theirCurrentUtterance = '';
+                    this.debounceTheirCompletion(text);
+                    clearTimeout(this.theirCompletionTimer);
                     this.theirCompletionTimer = null;
-
+                    this.flushTheirCompletion();
+                } else if (isFinal) {
+                    this.theirCurrentUtterance = '';
+                    this.debounceTheirCompletion(text);
+                } else {
                     this.theirCurrentUtterance = text;
-                    
+
                     const continuousText = (this.theirCompletionBuffer + ' ' + this.theirCurrentUtterance).trim();
 
                     this.sendToRenderer('stt-update', {
