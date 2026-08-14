@@ -114,6 +114,34 @@ function getAutoUpdate(uid) {
     }
 }
 
+function getSttLanguage(uid) {
+    const db = sqliteClient.getDb();
+    try {
+        const row = db.prepare('SELECT stt_language FROM users WHERE uid = ?').get(uid);
+        return row?.stt_language || 'en';
+    } catch (error) {
+        console.error('SQLite: Failed to get STT language:', error);
+        return 'en';
+    }
+}
+
+function setSttLanguage(uid, language) {
+    const db = sqliteClient.getDb();
+    const targetUid = uid || sqliteClient.defaultUserId;
+    try {
+        const result = db.prepare('UPDATE users SET stt_language = ? WHERE uid = ?').run(language, targetUid);
+        if (result.changes === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            db.prepare('INSERT OR REPLACE INTO users (uid, display_name, email, created_at, stt_language) VALUES (?, ?, ?, ?, ?)')
+              .run(targetUid, 'User', 'user@example.com', now, language);
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('SQLite: Failed to set STT language:', error);
+        throw error;
+    }
+}
+
 function setAutoUpdate(uid, isEnabled) {
     const db = sqliteClient.getDb();
     const targetUid = uid || sqliteClient.defaultUserId;
@@ -142,5 +170,7 @@ module.exports = {
     updatePreset,
     deletePreset,
     getAutoUpdate,
-    setAutoUpdate
+    setAutoUpdate,
+    getSttLanguage,
+    setSttLanguage
 };

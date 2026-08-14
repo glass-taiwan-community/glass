@@ -2,6 +2,7 @@ const { BrowserWindow } = require('electron');
 const { spawn } = require('child_process');
 const { createSTT } = require('../../common/ai/factory');
 const modelStateService = require('../../common/services/modelStateService');
+const { resolveSttLanguage } = require('../../common/ai/sttLanguages');
 
 const COMPLETION_DEBOUNCE_MS = 2000;
 
@@ -150,18 +151,30 @@ class SttService {
     }
 
     async initializeSttSessions(language) {
-        // Deliberately resolves to undefined when nothing is configured, rather than defaulting
-        // to 'en'. Each provider then applies its own fallback: OpenAI omits the field entirely so
-        // the model auto-detects, while Deepgram and Gemini substitute an explicit code because
-        // their APIs require one. Note this must be undefined and not null - JS default parameters
-        // only engage on undefined, so null would skip every provider-side fallback.
-        const effectiveLanguage = process.env.OPENAI_TRANSCRIBE_LANG || language || undefined;
-
         const modelInfo = await modelStateService.getCurrentModelInfo('stt');
         if (!modelInfo || !modelInfo.apiKey) {
             throw new Error('AI model or API key is not configured.');
         }
         this.modelInfo = modelInfo;
+
+        // `language` is a neutral value ('en' | 'zh') and must be translated to whatever code this
+        // provider expects - OpenAI wants ISO-639-1 'zh', Deepgram wants BCP-47 'zh-TW'. That is
+        // why resolution happens here rather than earlier: the provider is not known until
+        // modelInfo is loaded.
+        //
+        // OPENAI_TRANSCRIBE_LANG deliberately bypasses the mapping. It carries a raw provider code
+        // (that is how zh-TW and zh were tested against Deepgram and OpenAI), so passing it
+        // through resolveSttLanguage would fail to match a neutral value and silently drop it.
+        //
+        // Resolving to undefined is meaningful, not a failure: the call chain treats it as "no
+        // language configured", so OpenAI omits the field and auto-detects while Deepgram and
+        // Gemini fall back to their own defaults. It must be undefined rather than null, because
+        // JS default parameters engage only on undefined.
+        const effectiveLanguage =
+            process.env.OPENAI_TRANSCRIBE_LANG ||
+            resolveSttLanguage(language, modelInfo.provider) ||
+            undefined;
+        console.log(`[SttService] STT language: requested=${language || 'auto'} -> sent=${effectiveLanguage || 'auto (omitted)'}`);
         console.log(`[SttService] Initializing STT for ${modelInfo.provider} using model ${modelInfo.model}`);
 
         const handleMyMessage = message => {
