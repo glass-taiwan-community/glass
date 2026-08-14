@@ -2,6 +2,7 @@ const { ipcMain, BrowserWindow } = require('electron');
 const Store = require('electron-store');
 const authService = require('../common/services/authService');
 const settingsRepository = require('./repositories');
+const { SUPPORTED_STT_LANGUAGES } = require('../common/ai/sttLanguages');
 const { getStoredApiKey, getStoredProvider, windowPool } = require('../../window/windowManager');
 
 // New imports for common services
@@ -421,6 +422,28 @@ async function setAutoUpdateSetting(isEnabled) {
     }
 }
 
+async function getSttLanguageSetting() {
+    try {
+        return await settingsRepository.getSttLanguage();
+    } catch (error) {
+        console.error('[SettingsService] Error getting STT language:', error);
+        return 'en';
+    }
+}
+
+async function setSttLanguageSetting(language) {
+    if (!SUPPORTED_STT_LANGUAGES.includes(language)) {
+        return { success: false, error: `Unsupported STT language: ${language}` };
+    }
+    try {
+        await settingsRepository.setSttLanguage(language);
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting STT language:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 function initialize() {
     // cleanup 
     windowNotificationManager.cleanup();
@@ -457,6 +480,9 @@ module.exports = {
     updateContentProtection,
     getAutoUpdateSetting,
     setAutoUpdateSetting,
+    getSttLanguageSetting,
+    setSttLanguageSetting,
+    SUPPORTED_STT_LANGUAGES,
     // Model settings facade
     getModelSettings,
     clearApiKey,

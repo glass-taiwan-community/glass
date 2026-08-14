@@ -44,6 +44,16 @@ const settingsRepositoryAdapter = {
         const uid = authService.getCurrentUserId();
         return getBaseRepository().setAutoUpdate(uid, isEnabled);
     },
+
+    getSttLanguage: () => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().getSttLanguage(uid);
+    },
+
+    setSttLanguage: (language) => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().setSttLanguage(uid, language);
+    },
 };
 
 module.exports = settingsRepositoryAdapter;

@@ -499,6 +499,8 @@ export class SettingsView extends LitElement {
         selectedPreset: { type: Object, state: true },
         showPresets: { type: Boolean, state: true },
         autoUpdateEnabled: { type: Boolean, state: true },
+        sttLanguage: { type: String, state: true },
+        sttLanguageLoading: { type: Boolean, state: true },
         autoUpdateLoading: { type: Boolean, state: true },
         // Ollama related properties
         ollamaStatus: { type: Object, state: true },
@@ -539,6 +541,8 @@ export class SettingsView extends LitElement {
         this.handleUsePicklesKey = this.handleUsePicklesKey.bind(this)
         this.autoUpdateEnabled = true;
         this.autoUpdateLoading = true;
+        this.sttLanguage = 'en';
+        this.sttLanguageLoading = true;
         this.loadInitialData();
         //////// after_modelStateService ////////
     }
@@ -555,6 +559,38 @@ export class SettingsView extends LitElement {
             this.autoUpdateEnabled = true; // fallback
         }
         this.autoUpdateLoading = false;
+        this.requestUpdate();
+    }
+
+    async loadSttLanguageSetting() {
+        if (!window.api) return;
+        this.sttLanguageLoading = true;
+        try {
+            this.sttLanguage = await window.api.settingsView.getSttLanguage();
+        } catch (e) {
+            console.error('Error loading STT language setting:', e);
+            this.sttLanguage = 'en'; // fallback
+        }
+        this.sttLanguageLoading = false;
+        this.requestUpdate();
+    }
+
+    async handleToggleSttLanguage() {
+        if (!window.api || this.sttLanguageLoading) return;
+        this.sttLanguageLoading = true;
+        this.requestUpdate();
+        try {
+            const newValue = this.sttLanguage === 'en' ? 'zh' : 'en';
+            const result = await window.api.settingsView.setSttLanguage(newValue);
+            if (result && result.success) {
+                this.sttLanguage = newValue;
+            } else {
+                console.error('Failed to update STT language:', result && result.error);
+            }
+        } catch (e) {
+            console.error('Error toggling STT language:', e);
+        }
+        this.sttLanguageLoading = false;
         this.requestUpdate();
     }
 
@@ -932,6 +968,7 @@ export class SettingsView extends LitElement {
         this.setupIpcListeners();
         this.setupWindowResize();
         this.loadAutoUpdateSetting();
+        this.loadSttLanguageSetting();
         // Force one height calculation immediately (innerHeight may be 0 at first)
         setTimeout(() => this.updateScrollHeight(), 0);
     }
@@ -972,6 +1009,7 @@ export class SettingsView extends LitElement {
                 this.firebaseUser = null;
             }
             this.loadAutoUpdateSetting();
+            this.loadSttLanguageSetting();
             // Reload model settings when user state changes (Firebase login/logout)
             this.loadInitialData();
         };
@@ -1440,6 +1478,9 @@ export class SettingsView extends LitElement {
                 <div class="buttons-section">
                     <button class="settings-button full-width" @click=${this.handlePersonalize}>
                         <span>Personalize / Meeting Notes</span>
+                    </button>
+                    <button class="settings-button full-width" @click=${this.handleToggleSttLanguage} ?disabled=${this.sttLanguageLoading}>
+                        <span>Transcription: ${this.sttLanguage === 'zh' ? '繁體中文' : 'English'}</span>
                     </button>
                     <button class="settings-button full-width" @click=${this.handleToggleAutoUpdate} ?disabled=${this.autoUpdateLoading}>
                         <span>Automatic Updates: ${this.autoUpdateEnabled ? 'On' : 'Off'}</span>
