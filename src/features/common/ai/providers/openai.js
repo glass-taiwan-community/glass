@@ -41,7 +41,7 @@ class OpenAIProvider {
  * @param {string} [opts.portkeyVirtualKey] - Portkey virtual key
  * @returns {Promise<object>} STT session
  */
-async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey = false, portkeyVirtualKey, ...config }) {
+async function createSTT({ apiKey, language, callbacks = {}, usePortkey = false, portkeyVirtualKey, ...config }) {
   const keyType = usePortkey ? 'vKey' : 'apiKey';
   const key = usePortkey ? (portkeyVirtualKey || apiKey) : apiKey;
 
@@ -94,7 +94,12 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
               transcription: {
                 model,
                 prompt: config.prompt || '',
-                language: language || 'en',
+                // `language` is an optional hint. Omitting it lets the model auto-detect, which
+                // is what we want by default: Glass previously hard-defaulted to 'en' all the way
+                // down the call chain, so non-English speech was transcribed while the model was
+                // being told the audio was English. Only send the field when a language was
+                // actually configured.
+                ...(language ? { language } : {}),
               },
               noise_reduction: {
                 type: 'near_field',
@@ -116,6 +121,7 @@ async function createSTT({ apiKey, language = 'en', callbacks = {}, usePortkey =
         },
       };
       
+      console.log(`[OpenAI STT] language=${language || 'auto-detect (omitted)'}`);
       if (sttDebug) console.log('[STT DEBUG] Sending session config:', JSON.stringify(sessionConfig));
       ws.send(JSON.stringify(sessionConfig));
 

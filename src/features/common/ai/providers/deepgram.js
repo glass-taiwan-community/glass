@@ -42,7 +42,10 @@ class DeepgramProvider {
 
 function createSTT({
     apiKey,
-    language = 'en-US',
+    // Deepgram requires an explicit language; it has no auto-detect for streaming, and its
+    // multilingual 'multi' code excludes Chinese. 'en' rather than 'en-US' because that is what
+    // sttService has always passed - the previous 'en-US' default here was never reached.
+    language = 'en',
     sampleRate = 24000,
     callbacks = {},
   }) {
