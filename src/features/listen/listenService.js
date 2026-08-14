@@ -5,6 +5,7 @@ const authService = require('../common/services/authService');
 const sessionRepository = require('../common/repositories/session');
 const sttRepository = require('./stt/repositories');
 const internalBridge = require('../../bridge/internalBridge');
+const settingsService = require('../settings/settingsService');
 
 class ListenService {
     constructor() {
@@ -172,6 +173,18 @@ class ListenService {
             console.log('Session initialization already in progress.');
             return false;
         }
+
+        // Language is a connection parameter on every provider, so it can only be chosen here at
+        // session start - never mid-stream. An explicit argument (used by tests and by
+        // renewSessions) wins over the stored setting.
+        if (!language) {
+            try {
+                language = await settingsService.getSttLanguageSetting();
+            } catch (err) {
+                console.warn('[ListenService] Could not read STT language setting, falling back to auto:', err.message);
+            }
+        }
+        console.log(`[ListenService] STT language: ${language || 'auto'}`);
 
         this.isInitializingSession = true;
         this.sendToRenderer('session-initializing', true);

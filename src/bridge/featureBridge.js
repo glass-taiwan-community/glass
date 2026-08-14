@@ -19,7 +19,9 @@ module.exports = {
     // Settings Service
     ipcMain.handle('settings:getPresets', async () => await settingsService.getPresets());
     ipcMain.handle('settings:get-auto-update', async () => await settingsService.getAutoUpdateSetting());
-    ipcMain.handle('settings:set-auto-update', async (event, isEnabled) => await settingsService.setAutoUpdateSetting(isEnabled));  
+    ipcMain.handle('settings:set-auto-update', async (event, isEnabled) => await settingsService.setAutoUpdateSetting(isEnabled));
+    ipcMain.handle('settings:get-stt-language', async () => await settingsService.getSttLanguageSetting());
+    ipcMain.handle('settings:set-stt-language', async (event, language) => await settingsService.setSttLanguageSetting(language));  
     ipcMain.handle('settings:get-model-settings', async () => await settingsService.getModelSettings());
     ipcMain.handle('settings:clear-api-key', async (e, { provider }) => await settingsService.clearApiKey(provider));
     ipcMain.handle('settings:set-selected-model', async (e, { type, modelId }) => await settingsService.setSelectedModel(type, modelId));    
