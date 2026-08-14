@@ -149,8 +149,13 @@ class SttService {
         this.theirCompletionTimer = setTimeout(() => this.flushTheirCompletion(), COMPLETION_DEBOUNCE_MS);
     }
 
-    async initializeSttSessions(language = 'en') {
-        const effectiveLanguage = process.env.OPENAI_TRANSCRIBE_LANG || language || 'en';
+    async initializeSttSessions(language) {
+        // Deliberately resolves to undefined when nothing is configured, rather than defaulting
+        // to 'en'. Each provider then applies its own fallback: OpenAI omits the field entirely so
+        // the model auto-detects, while Deepgram and Gemini substitute an explicit code because
+        // their APIs require one. Note this must be undefined and not null - JS default parameters
+        // only engage on undefined, so null would skip every provider-side fallback.
+        const effectiveLanguage = process.env.OPENAI_TRANSCRIBE_LANG || language || undefined;
 
         const modelInfo = await modelStateService.getCurrentModelInfo('stt');
         if (!modelInfo || !modelInfo.apiKey) {
@@ -565,7 +570,7 @@ class SttService {
      * Gracefully tears down then recreates the STT sessions. Should be invoked
      * on a timer to avoid provider-side hard timeouts.
      */
-    async renewSessions(language = 'en') {
+    async renewSessions(language) {
         if (!this.isSessionActive()) {
             console.warn('[SttService] renewSessions called but no active session.');
             return;
