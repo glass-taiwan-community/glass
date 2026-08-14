@@ -112,4 +112,4 @@ data/*.db-wal
 # Build output
 out/
 dist/
-build/ 
+build/ test-results/
