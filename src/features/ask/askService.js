@@ -253,6 +253,12 @@ class AskService {
             const screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
 
             const conversationHistory = this._formatConversationForPrompt(conversationHistoryRaw);
+            // A prompt missing its conversation context is indistinguishable from one that has it
+            // by looking at the answer alone, so record what actually went in. Report the sent
+            // count separately from the available count: _formatConversationForPrompt keeps only
+            // the last 30 turns, so on a long session most of the history never reaches the model.
+            const availableTurns = conversationHistoryRaw?.length ?? 0;
+            console.log(`[AskService] Context: ${Math.min(availableTurns, 30)} of ${availableTurns} conversation turn(s) sent, screenshot=${screenshotBase64 ? 'yes' : 'no'}`);
 
             const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false);
 
