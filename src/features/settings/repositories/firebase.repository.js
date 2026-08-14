@@ -120,6 +120,32 @@ async function getAutoUpdate(uid) {
     }
 }
 
+async function getSttLanguage(uid) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        return userSnap.exists() ? (userSnap.data().stt_language || 'en') : 'en';
+    } catch (error) {
+        console.error('Firebase: Error getting STT language:', error);
+        return 'en';
+    }
+}
+
+async function setSttLanguage(uid, language) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+            await updateDoc(userDocRef, { stt_language: language });
+        }
+        // Mirrors setAutoUpdate: if the user doc does not exist, do nothing (no creation).
+        return { success: true };
+    } catch (error) {
+        console.error('Firebase: Error setting STT language:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function setAutoUpdate(uid, isEnabled) {
     const userDocRef = doc(getFirestoreInstance(), 'users', uid);
     try {
@@ -145,4 +171,6 @@ module.exports = {
     deletePreset,
     getAutoUpdate,
     setAutoUpdate,
+    getSttLanguage,
+    setSttLanguage,
 }; 
