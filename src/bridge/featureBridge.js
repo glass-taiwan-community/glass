@@ -79,7 +79,15 @@ module.exports = {
     ipcMain.handle('ollama:shutdown', async (event, force = false) => await ollamaService.handleShutdown(force));
 
     // Ask
-    ipcMain.handle('ask:sendQuestionFromAsk', async (event, userPrompt) => await askService.sendMessage(userPrompt));
+    ipcMain.handle('ask:sendQuestionFromAsk', async (event, userPrompt) => {
+      // Same context as the summary path below. Omitting it here made sendMessage fall back to
+      // its empty default, which _formatConversationForPrompt renders as the literal
+      // "No conversation history available." - so the Ask button was telling the model the
+      // conversation did not exist and leaving it with only the screenshot to work from.
+      // Returns [] when no Listen session is active, which is the previous behaviour.
+      const conversationHistory = listenService.getConversationHistory();
+      return await askService.sendMessage(userPrompt, conversationHistory);
+    });
     ipcMain.handle('ask:sendQuestionFromSummary', async (event, userPrompt) => {
       // Get conversation history from Listen feature to provide context
       const conversationHistory = listenService.getConversationHistory();
