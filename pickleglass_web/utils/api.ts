@@ -66,6 +66,15 @@ export interface Summary {
   tokens_used?: number;
   updated_at: number;
   sync_state: 'clean' | 'dirty';
+  // Durable whole-session summary, written once when the session ends. Optional because
+  // sessions recorded before this feature - and any where generation failed - have only the
+  // live snapshot fields above. Presence of final_generated_at is the switch between them.
+  final_text?: string | null;
+  final_tldr?: string | null;
+  final_bullet_json?: string | null;
+  final_action_json?: string | null;
+  final_model?: string | null;
+  final_generated_at?: number | null;
 }
 
 export interface PromptPreset {
