@@ -263,9 +263,47 @@ class ListenService {
             await this.stopMacOSAudioCapture();
 
             // End database session
+            const endedSessionId = this.currentSessionId;
             if (this.currentSessionId) {
                 await sessionRepository.end(this.currentSessionId);
                 console.log(`[DB] Session ${this.currentSessionId} ended.`);
+            }
+
+            // Generate the durable whole-session summary.
+            //
+            // Deliberately NOT awaited: it makes an LLM call over the full transcript and would
+            // otherwise hang the Stop button for several seconds. The id is captured above because
+            // this.currentSessionId is cleared just below, and the .catch() is mandatory - a failed
+            // summary is an acceptable outcome, but it must never take closeSession() down with it.
+            if (endedSessionId) {
+                // Every outcome is reported, not just success. Without a terminal status for the
+                // failure and skip paths the UI would sit on "generating" forever - which is
+                // exactly what happened when an Anthropic credit error killed a run silently.
+                this.sendToRenderer('final-summary-status', { sessionId: endedSessionId, status: 'generating' });
+                this.summaryService.generateSessionSummary(endedSessionId)
+                    .then(result => {
+                        if (result?.success) {
+                            this.sendToRenderer('final-summary-status', {
+                                sessionId: endedSessionId,
+                                status: 'ready',
+                                data: result.data,
+                            });
+                        } else {
+                            this.sendToRenderer('final-summary-status', {
+                                sessionId: endedSessionId,
+                                status: result?.skipped ? 'skipped' : 'failed',
+                                reason: result?.skipped || result?.error || 'unknown',
+                            });
+                        }
+                    })
+                    .catch(err => {
+                        console.error('[ListenService] Final summary failed:', err.message);
+                        this.sendToRenderer('final-summary-status', {
+                            sessionId: endedSessionId,
+                            status: 'failed',
+                            reason: err.message,
+                        });
+                    });
             }
 
             // Reset state

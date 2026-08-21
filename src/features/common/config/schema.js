@@ -59,7 +59,17 @@ const LATEST_SCHEMA = {
             { name: 'action_json', type: 'TEXT' },
             { name: 'tokens_used', type: 'INTEGER' },
             { name: 'updated_at', type: 'INTEGER' },
-            { name: 'sync_state', type: 'TEXT DEFAULT \'clean\'' }
+            { name: 'sync_state', type: 'TEXT DEFAULT \'clean\'' },
+            // Final whole-session summary, written once when the session ends. Kept in parallel
+            // with the columns above rather than overwriting them: those hold the live snapshot,
+            // which is recency-weighted (last 30 turns) and rewritten every 5 turns. The two serve
+            // different purposes and previously fought over the same row.
+            { name: 'final_text', type: 'TEXT' },
+            { name: 'final_tldr', type: 'TEXT' },
+            { name: 'final_bullet_json', type: 'TEXT' },
+            { name: 'final_action_json', type: 'TEXT' },
+            { name: 'final_model', type: 'TEXT' },
+            { name: 'final_generated_at', type: 'INTEGER' }
         ]
     },
     prompt_presets: {

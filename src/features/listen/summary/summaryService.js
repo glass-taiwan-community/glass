@@ -3,7 +3,13 @@ const { getSystemPrompt } = require('../../common/prompts/promptBuilder.js');
 const { createLLM } = require('../../common/ai/factory');
 const sessionRepository = require('../../common/repositories/session');
 const summaryRepository = require('./repositories');
+const sttRepository = require('../stt/repositories');
 const modelStateService = require('../../common/services/modelStateService');
+
+// Sessions below this much real content are not worth an LLM call - typically a mis-click on
+// Listen. Measured with contentUnits(), so it behaves the same for Chinese and English:
+// roughly 30-45 seconds of actual speech in either.
+const MIN_CONTENT_UNITS_FOR_FINAL_SUMMARY = 100;
 
 class SummaryService {
     constructor() {
@@ -424,6 +430,176 @@ Keep all points concise and build upon previous analysis if provided.
             } else {
                 console.log('No analysis data returned');
             }
+        }
+    }
+
+    /**
+     * Length of real content in a transcript, safe for both space-delimited and CJK scripts.
+     *
+     * A naive text.split(/\s+/) counts 51 Chinese characters as ONE word, so a word-count gate
+     * would silently skip every Chinese session no matter how long - failing invisibly, with no
+     * error, in the language this is most used in. Each CJK character counts as one unit, each
+     * space-delimited token counts as one unit.
+     */
+    contentUnits(text) {
+        if (!text) return 0;
+        const CJK = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u30FF]/g;
+        const cjk = (text.match(CJK) || []).length;
+        const rest = text.replace(CJK, ' ').trim().split(/\s+/).filter(Boolean).length;
+        return cjk + rest;
+    }
+
+    /**
+     * Parses the retrospective response into the same SHAPE as parseResponseText, so the stored
+     * columns and the web renderer need no changes - but with retrospective semantics.
+     *
+     * A separate parser rather than a flag on parseResponseText because that one is built for the
+     * live snapshot and would corrupt this output: it caps topic bullets at 3 (far too few for a
+     * whole session, especially now that conflicts live in those bullets), and it fills `actions`
+     * from "Suggested Questions" plus hardcoded live-assist affordances such as
+     * "What should I say next?" - meaningless in a durable record where `actions` must mean
+     * action items.
+     */
+    parseFinalResponseText(responseText) {
+        const data = { summary: [], topic: { header: '', bullets: [] }, actions: [] };
+        try {
+            let section = '';
+            for (const rawLine of responseText.split('\n')) {
+                const line = rawLine.trim();
+
+                if (line.startsWith('**Summary Overview**')) { section = 'summary'; continue; }
+                if (line.startsWith('**Key Topic:')) {
+                    section = 'topic';
+                    const name = line.match(/\*\*Key Topic: (.+?)\*\*/)?.[1] || '';
+                    if (name) data.topic.header = name;
+                    continue;
+                }
+                if (line.startsWith('**Action Items**')) { section = 'actions'; continue; }
+                if (line.startsWith('**')) { section = ''; continue; }
+
+                if (!line) continue;
+
+                if (section === 'summary' && line.startsWith('-')) {
+                    const point = line.substring(1).trim();
+                    if (point && data.summary.length < 8) data.summary.push(point);
+                } else if (section === 'topic' && line.startsWith('-')) {
+                    const bullet = line.substring(1).trim();
+                    if (bullet && data.topic.bullets.length < 12) data.topic.bullets.push(bullet);
+                } else if (section === 'actions') {
+                    const action = line.replace(/^[-*]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+                    if (action && data.actions.length < 12) data.actions.push(action);
+                }
+            }
+        } catch (error) {
+            console.error('[SummaryService] Error parsing final summary:', error);
+        }
+        return data;
+    }
+
+    /**
+     * Generates the durable whole-session summary. Called once when a session ends.
+     *
+     * Reads transcripts from the DATABASE rather than the in-memory conversationHistory. That is
+     * deliberate: it works for sessions abandoned by a crash or quit, it makes the operation
+     * re-runnable later (including for sessions recorded before this feature existed), and it
+     * removes a hidden dependency on closeSession() not having reset state yet.
+     *
+     * Writes only the final_* columns, leaving the live snapshot intact as a fallback.
+     *
+     * @param {string} sessionId
+     * @returns {Promise<{success: boolean, skipped?: string, error?: string}>}
+     */
+    async generateSessionSummary(sessionId) {
+        if (!sessionId) return { success: false, error: 'No sessionId provided' };
+
+        try {
+            const transcripts = await sttRepository.getAllTranscriptsBySessionId(sessionId);
+            if (!transcripts || transcripts.length === 0) {
+                console.log(`[SummaryService] No transcripts for session ${sessionId}, skipping final summary`);
+                return { success: false, skipped: 'no-transcripts' };
+            }
+
+            const conversation = transcripts
+                .map(t => `${(t.speaker || '').toLowerCase()}: ${(t.text || '').trim()}`)
+                .filter(line => line.length > 2)
+                .join('\n');
+
+            const units = this.contentUnits(conversation);
+            if (units < MIN_CONTENT_UNITS_FOR_FINAL_SUMMARY) {
+                console.log(`[SummaryService] Session too short to summarise: ${units} units (need ${MIN_CONTENT_UNITS_FOR_FINAL_SUMMARY})`);
+                return { success: false, skipped: 'too-short' };
+            }
+
+            const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            if (!modelInfo || !modelInfo.apiKey) {
+                console.warn('[SummaryService] No LLM configured, skipping final summary');
+                return { success: false, skipped: 'no-llm' };
+            }
+
+            console.log(`[SummaryService] Generating final summary for ${sessionId}: ${transcripts.length} turns, ${units} units, model ${modelInfo.model}`);
+
+            const basePrompt = getSystemPrompt('session_retrospective', '', false, this.preContext);
+            const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', conversation);
+
+            const llm = createLLM(modelInfo.provider, {
+                apiKey: modelInfo.apiKey,
+                baseUrl: modelInfo.baseUrl,
+                model: modelInfo.model,
+                temperature: 0.5,
+                maxTokens: 2048,
+            });
+
+            // Must be chat(), not generateContent(). The two take different shapes: chat()
+            // accepts {role, content} message objects, while generateContent() expects an array
+            // of plain strings and silently discards anything else - which produced an empty
+            // messages array and a 400 "at least one message is required" from Anthropic.
+            const completion = await llm.chat([
+                { role: 'system', content: systemPrompt },
+                {
+                    role: 'user',
+                    content: `This session has ended. Produce the durable record of the WHOLE session.
+
+**Summary Overview**
+- 3-6 bullets covering the entire session, in chronological order
+
+**Key Topic: [name the main subject]**
+- The key points, decisions and outcomes
+- Include disagreements, unanswered objections and apparent tension here, hedged appropriately
+- 4-10 bullets
+
+**Action Items**
+1. Concrete follow-ups, each with the owner if the transcript makes it clear
+2. Write "None identified" if the session produced no action items
+
+Do NOT include follow-up questions or suggestions about what to say - the meeting is over.
+
+**LANGUAGE INSTRUCTION:**
+- Respond in Traditional Chinese (繁體中文)
+- IMPORTANT: Keep section headers in English exactly as shown (do not translate "**Summary Overview**", "**Key Topic:**", "**Action Items**")
+- Keep code snippets, technical terms, API names, libraries, frameworks, and proper nouns in English
+- Translate all content to Traditional Chinese`,
+                },
+            ]);
+
+            const responseText = completion.content;
+            const data = this.parseFinalResponseText(responseText);
+
+            await summaryRepository.saveFinalSummary({
+                sessionId,
+                text: responseText,
+                tldr: data.summary.join('\n'),
+                bullet_json: JSON.stringify(data.topic.bullets),
+                action_json: JSON.stringify(data.actions),
+                model: modelInfo.model,
+            });
+
+            console.log(`[SummaryService] Final summary saved for ${sessionId}: ${data.summary.length} overview, ${data.topic.bullets.length} points, ${data.actions.length} actions`);
+            // Returned so listenService can hand it straight to the renderer. Avoids a second IPC
+            // round-trip and a re-read of the row we just wrote.
+            return { success: true, data };
+        } catch (error) {
+            console.error('[SummaryService] Failed to generate final summary:', error.message);
+            return { success: false, error: error.message };
         }
     }
 

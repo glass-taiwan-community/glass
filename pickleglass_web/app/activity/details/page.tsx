@@ -126,33 +126,71 @@ function SessionDetailsContent() {
                     </button>
                 </div>
 
-                {sessionDetails.summary && (
+                {sessionDetails.summary && (() => {
+                    // Switch on the WHOLE artifact, never field by field. The live snapshot only
+                    // covers the last 30 turns and is rewritten every 5, so mixing its bullets
+                    // under a whole-session headline yields a summary that contradicts itself.
+                    const isFinal = Boolean(sessionDetails.summary.final_generated_at)
+                    const view = isFinal
+                        ? {
+                            tldr: sessionDetails.summary.final_tldr,
+                            bullet_json: sessionDetails.summary.final_bullet_json,
+                            action_json: sessionDetails.summary.final_action_json,
+                          }
+                        : {
+                            tldr: sessionDetails.summary.tldr,
+                            bullet_json: sessionDetails.summary.bullet_json,
+                            action_json: sessionDetails.summary.action_json,
+                          }
+
+                    const parse = (json?: string | null): string[] => {
+                        if (!json) return []
+                        try { return JSON.parse(json) } catch { return [] }
+                    }
+                    const bullets = parse(view.bullet_json)
+                    const actions = parse(view.action_json)
+
+                    return (
                     <Section title="Summary">
-                        <p className="text-lg italic text-gray-600 mb-4">"{sessionDetails.summary.tldr}"</p>
-                        
-                        {sessionDetails.summary.bullet_json && JSON.parse(sessionDetails.summary.bullet_json).length > 0 &&
+                        {/* The two artifacts are not interchangeable and cannot be told apart by
+                            reading them, so label which one is on screen. "（部分）" is doing real
+                            work: it warns that early material may be missing and the transcript
+                            below is the authority. */}
+                        <div className="mb-3">
+                            <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                isFinal ? 'bg-green-50 text-green-700 border border-green-200'
+                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                                {isFinal ? '完整會議摘要' : '即時摘要（部分）'}
+                            </span>
+                        </div>
+
+                        {view.tldr && <p className="text-lg italic text-gray-600 mb-4">"{view.tldr}"</p>}
+
+                        {bullets.length > 0 &&
                             <div className="mt-4">
                                 <h3 className="font-semibold text-gray-700 mb-2">Key Points:</h3>
                                 <ul className="list-disc list-inside space-y-1 text-gray-600">
-                                    {JSON.parse(sessionDetails.summary.bullet_json).map((point: string, index: number) => (
+                                    {bullets.map((point: string, index: number) => (
                                         <li key={index}>{point}</li>
                                     ))}
                                 </ul>
                             </div>
                         }
 
-                        {sessionDetails.summary.action_json && JSON.parse(sessionDetails.summary.action_json).length > 0 &&
+                        {actions.length > 0 &&
                             <div className="mt-4">
                                 <h3 className="font-semibold text-gray-700 mb-2">Action Items:</h3>
                                 <ul className="list-disc list-inside space-y-1 text-gray-600">
-                                    {JSON.parse(sessionDetails.summary.action_json).map((action: string, index: number) => (
+                                    {actions.map((action: string, index: number) => (
                                         <li key={index}>{action}</li>
                                     ))}
                                 </ul>
                             </div>
                         }
                     </Section>
-                )}
+                    )
+                })()}
                 
                 {sessionDetails.transcripts && sessionDetails.transcripts.length > 0 && (
                     <Section title="Listen: Transcript">

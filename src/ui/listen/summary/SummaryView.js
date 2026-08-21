@@ -103,6 +103,39 @@ export class SummaryView extends LitElement {
             background: rgba(255, 255, 255, 0.5);
         }
 
+        .final-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0 10px 0;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .final-status.generating {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        .final-status.failed {
+            background: rgba(255, 120, 120, 0.12);
+            color: rgba(255, 190, 190, 0.95);
+        }
+        /* A static "please wait" is indistinguishable from a frozen UI, which is the exact
+           uncertainty this indicator exists to remove. The pulse is the proof of life. */
+        .final-status .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+            animation: final-pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes final-pulse {
+            0%, 100% { opacity: 0.25; }
+            50%      { opacity: 1; }
+        }
+
         insights-title {
             color: rgba(255, 255, 255, 0.8);
             font-size: 15px;
@@ -237,6 +270,8 @@ export class SummaryView extends LitElement {
         structuredData: { type: Object },
         isVisible: { type: Boolean },
         hasCompletedRecording: { type: Boolean },
+        isFinalSummary: { type: Boolean },
+        finalSummaryStatus: { type: String },
     };
 
     constructor() {
@@ -249,6 +284,8 @@ export class SummaryView extends LitElement {
         };
         this.isVisible = true;
         this.hasCompletedRecording = false;
+        this.isFinalSummary = false;
+        this.finalSummaryStatus = 'idle'; // idle | generating | ready | skipped | failed
         // 마크다운 라이브러리 초기화
         this.marked = null;
         this.hljs = null;
@@ -270,6 +307,24 @@ export class SummaryView extends LitElement {
                 this.structuredData = data;
                 this.requestUpdate();
             });
+            // Arrives seconds after Stop, once the whole-session summary has been generated.
+            // Replaces the live snapshot wholesale rather than merging: the live one only covers
+            // the last 30 turns, so mixing the two would show whole-session points under a
+            // recency-scoped headline. Keep followUps from the live data - they are static UI
+            // affordances, not generated content, and the final summary does not produce them.
+            window.api.summaryView.onFinalSummaryStatus((event, payload) => {
+                if (!payload?.status) return;
+                this.finalSummaryStatus = payload.status;
+
+                if (payload.status === 'ready' && payload.data) {
+                    this.structuredData = {
+                        ...payload.data,
+                        followUps: this.structuredData?.followUps || [],
+                    };
+                    this.isFinalSummary = true;
+                }
+                this.requestUpdate();
+            });
         }
     }
 
@@ -282,6 +337,8 @@ export class SummaryView extends LitElement {
 
     // Handle session reset from parent
     resetAnalysis() {
+        this.isFinalSummary = false;
+        this.finalSummaryStatus = 'idle';
         this.structuredData = {
             summary: [],
             topic: { header: '', bullets: [] },
@@ -483,10 +540,27 @@ export class SummaryView extends LitElement {
                 ${!hasAnyContent
                     ? html`<div class="empty-state">No insights yet...</div>`
                     : html`
-                        <insights-title>Current Summary</insights-title>
+                        ${this.finalSummaryStatus === 'generating'
+                            ? html`<div class="final-status generating">
+                                       <span class="dot"></span>
+                                       正在產生完整會議摘要，請稍候…
+                                   </div>`
+                            : ''}
+                        ${this.finalSummaryStatus === 'failed'
+                            ? html`<div class="final-status failed">
+                                       無法產生完整會議摘要，以下為即時摘要（部分）
+                                   </div>`
+                            : ''}
+                        <insights-title>
+                            ${this.isFinalSummary ? '完整會議摘要' : 'Current Summary'}
+                        </insights-title>
                         ${data.summary.length > 0
                             ? data.summary
-                                  .slice(0, 5)
+                                  // The live snapshot is capped at 5 for glanceability mid-meeting.
+                                  // The final summary is the durable record and is read after the
+                                  // meeting, so show all of it - truncating it here would silently
+                                  // hide whole-session points, which is the defect being fixed.
+                                  .slice(0, this.isFinalSummary ? data.summary.length : 5)
                                   .map(
                                       (bullet) => this._renderClickableItem(bullet)
                                   )

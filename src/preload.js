@@ -199,9 +199,12 @@ contextBridge.exposeInMainWorld('api', {
     removeOnSummaryUpdate: (callback) => ipcRenderer.removeListener('summary-update', callback),
     onAnalysisResult: (callback) => ipcRenderer.on('analysis-result', callback),
     removeOnAnalysisResult: (callback) => ipcRenderer.removeListener('analysis-result', callback),
+    onFinalSummaryStatus: (callback) => ipcRenderer.on('final-summary-status', callback),
+    removeOnFinalSummaryStatus: (callback) => ipcRenderer.removeListener('final-summary-status', callback),
     removeAllSummaryUpdateListeners: () => {
       ipcRenderer.removeAllListeners('summary-update');
       ipcRenderer.removeAllListeners('analysis-result');
+      ipcRenderer.removeAllListeners('final-summary-status');
     }
   },
 
