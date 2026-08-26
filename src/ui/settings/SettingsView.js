@@ -1114,6 +1114,9 @@ export class SettingsView extends LitElement {
             { name: 'Ask Anything', accelerator: this.shortcuts.nextStep },
             { name: 'Scroll Up Response', accelerator: this.shortcuts.scrollUp },
             { name: 'Scroll Down Response', accelerator: this.shortcuts.scrollDown },
+            { name: 'Scroll Up Listen', accelerator: this.shortcuts.scrollListenUp },
+            { name: 'Scroll Down Listen', accelerator: this.shortcuts.scrollListenDown },
+            { name: 'Insights / Transcript', accelerator: this.shortcuts.toggleListenView },
         ];
     }
 
