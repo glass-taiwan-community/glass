@@ -80,6 +80,9 @@ class ShortcutsService {
             scrollListenDown: isMac ? 'Cmd+Alt+Down' : 'Ctrl+Alt+Down',
             toggleListenView: isMac ? 'Cmd+Alt+T' : 'Ctrl+Alt+T',
             activateListenItem: isMac ? 'Cmd+Alt+Enter' : 'Ctrl+Alt+Enter',
+            // Deliberately not bare Escape: a global shortcut would take Escape from every
+            // other application, breaking dialogs, menus and fullscreen everywhere.
+            closeAsk: isMac ? 'Cmd+Alt+\\' : 'Ctrl+Alt+\\',
         };
     }
 
@@ -260,6 +263,11 @@ class ShortcutsService {
                     break;
                 case 'activateListenItem':
                     callback = () => sendToListen('listen:activateItem');
+                    break;
+                case 'closeAsk':
+                    // Same path as the window's X button, so an in-flight stream is aborted
+                    // rather than left running behind a hidden window.
+                    callback = () => askService.closeAskWindow();
                     break;
                 case 'moveUp':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };
