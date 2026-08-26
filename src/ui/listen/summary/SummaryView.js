@@ -494,6 +494,16 @@ export class SummaryView extends LitElement {
         `;
     }
 
+    /**
+     * Scroll the insights pane by a pixel delta. Exposed so ListenView can drive scrolling
+     * from a global shortcut without reaching into this component's shadow root.
+     * @param {number} delta - pixels to scroll; negative scrolls up.
+     */
+    scrollContent(delta) {
+        const container = this.shadowRoot.querySelector('.insights-container');
+        if (container) container.scrollTop += delta;
+    }
+
     getSummaryText() {
         const data = this.structuredData || { summary: [], topic: { header: '', bullets: [] }, actions: [] };
         let sections = [];

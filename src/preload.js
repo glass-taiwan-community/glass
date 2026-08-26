@@ -179,7 +179,14 @@ contextBridge.exposeInMainWorld('api', {
     
     // Listeners
     onSessionStateChanged: (callback) => ipcRenderer.on('session-state-changed', callback),
-    removeOnSessionStateChanged: (callback) => ipcRenderer.removeListener('session-state-changed', callback)
+    removeOnSessionStateChanged: (callback) => ipcRenderer.removeListener('session-state-changed', callback),
+
+    onScrollUp: (callback) => ipcRenderer.on('listen:scrollUp', callback),
+    removeOnScrollUp: (callback) => ipcRenderer.removeListener('listen:scrollUp', callback),
+    onScrollDown: (callback) => ipcRenderer.on('listen:scrollDown', callback),
+    removeOnScrollDown: (callback) => ipcRenderer.removeListener('listen:scrollDown', callback),
+    onToggleViewMode: (callback) => ipcRenderer.on('listen:toggleViewMode', callback),
+    removeOnToggleViewMode: (callback) => ipcRenderer.removeListener('listen:toggleViewMode', callback)
   },
 
   // src/ui/listen/stt/SttView.js

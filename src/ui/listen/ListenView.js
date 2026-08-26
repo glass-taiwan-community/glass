@@ -2,6 +2,9 @@ import { html, css, LitElement } from '../assets/lit-core-2.7.4.min.js';
 import './stt/SttView.js';
 import './summary/SummaryView.js';
 
+// Pixels scrolled per shortcut press, matching AskView.handleScroll.
+const SCROLL_STEP_PX = 100;
+
 export class ListenView extends LitElement {
     static styles = css`
         :host {
@@ -454,6 +457,17 @@ export class ListenView extends LitElement {
             this.startTimer();
         }
         if (window.api) {
+            // Held as instance references so disconnectedCallback can remove them by
+            // identity. The Listen window is never the key window, so these shortcut
+            // messages are the only way to scroll or switch panes from the keyboard.
+            this.handleScrollUp = () => this.scrollActivePane(-SCROLL_STEP_PX);
+            this.handleScrollDown = () => this.scrollActivePane(SCROLL_STEP_PX);
+            this.handleToggleViewMode = () => this.toggleViewMode();
+
+            window.api.listenView.onScrollUp(this.handleScrollUp);
+            window.api.listenView.onScrollDown(this.handleScrollDown);
+            window.api.listenView.onToggleViewMode(this.handleToggleViewMode);
+
             window.api.listenView.onSessionStateChanged((event, { isActive }) => {
                 const wasActive = this.isSessionActive;
                 this.isSessionActive = isActive;
@@ -490,6 +504,25 @@ export class ListenView extends LitElement {
         if (this.copyTimeout) {
             clearTimeout(this.copyTimeout);
         }
+
+        if (window.api) {
+            window.api.listenView.removeOnScrollUp(this.handleScrollUp);
+            window.api.listenView.removeOnScrollDown(this.handleScrollDown);
+            window.api.listenView.removeOnToggleViewMode(this.handleToggleViewMode);
+        }
+    }
+
+    /**
+     * Scroll whichever pane is currently showing. viewMode guarantees exactly one of
+     * stt-view / summary-view is visible at a time.
+     * @param {number} delta - pixels to scroll; negative scrolls up.
+     */
+    scrollActivePane(delta) {
+        const activeView = this.viewMode === 'transcript'
+            ? this.shadowRoot.querySelector('stt-view')
+            : this.shadowRoot.querySelector('summary-view');
+
+        activeView?.scrollContent(delta);
     }
 
     startTimer() {

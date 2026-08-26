@@ -188,6 +188,16 @@ export class SttView extends LitElement {
         return speaker.toLowerCase() === 'me' ? 'me' : 'them';
     }
 
+    /**
+     * Scroll the transcript by a pixel delta. Exposed so ListenView can drive scrolling
+     * from a global shortcut without reaching into this component's shadow root.
+     * @param {number} delta - pixels to scroll; negative scrolls up.
+     */
+    scrollContent(delta) {
+        const container = this.shadowRoot.querySelector('.transcription-container');
+        if (container) container.scrollTop += delta;
+    }
+
     getTranscriptText() {
         return this.sttMessages.map(msg => `${msg.speaker}: ${msg.text}`).join('\n');
     }

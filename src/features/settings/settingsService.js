@@ -179,6 +179,9 @@ const DEFAULT_KEYBINDS = {
         manualScreenshot: 'Cmd+Shift+S',
         scrollUp: 'Cmd+Shift+Up',
         scrollDown: 'Cmd+Shift+Down',
+        scrollListenUp: 'Cmd+Alt+Up',
+        scrollListenDown: 'Cmd+Alt+Down',
+        toggleListenView: 'Cmd+Alt+T',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -191,6 +194,9 @@ const DEFAULT_KEYBINDS = {
         manualScreenshot: 'Ctrl+Shift+S',
         scrollUp: 'Ctrl+Shift+Up',
         scrollDown: 'Ctrl+Shift+Down',
+        scrollListenUp: 'Ctrl+Alt+Up',
+        scrollListenDown: 'Ctrl+Alt+Down',
+        toggleListenView: 'Ctrl+Alt+T',
     }
 };
 

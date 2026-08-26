@@ -76,6 +76,9 @@ class ShortcutsService {
             manualScreenshot: isMac ? 'Cmd+Shift+S' : 'Ctrl+Shift+S',
             scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
             scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
+            scrollListenUp: isMac ? 'Cmd+Alt+Up' : 'Ctrl+Alt+Up',
+            scrollListenDown: isMac ? 'Cmd+Alt+Down' : 'Ctrl+Alt+Down',
+            toggleListenView: isMac ? 'Cmd+Alt+T' : 'Ctrl+Alt+T',
         };
     }
 
@@ -164,6 +167,13 @@ class ShortcutsService {
             });
         };
         
+        const sendToListen = (channel) => {
+            const listenWindow = this.windowPool.get('listen');
+            if (listenWindow && !listenWindow.isDestroyed() && listenWindow.isVisible()) {
+                listenWindow.webContents.send(channel);
+            }
+        };
+
         sendToRenderer('shortcuts-updated', keybinds);
 
         if (registerOnlyToggleVisibility) {
@@ -234,6 +244,18 @@ class ShortcutsService {
                             askWindow.webContents.send('ask:scrollResponseDown');
                         }
                     };
+                    break;
+                // Listen gets its own bindings rather than sharing the Ask ones. No Glass
+                // window is ever the key window, so there is no focused-window rule to fall
+                // back on -- the target has to be named explicitly by the shortcut itself.
+                case 'scrollListenUp':
+                    callback = () => sendToListen('listen:scrollUp');
+                    break;
+                case 'scrollListenDown':
+                    callback = () => sendToListen('listen:scrollDown');
+                    break;
+                case 'toggleListenView':
+                    callback = () => sendToListen('listen:toggleViewMode');
                     break;
                 case 'moveUp':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };
