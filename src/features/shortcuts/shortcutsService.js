@@ -3,6 +3,13 @@ const shortcutsRepository = require('./repositories');
 const internalBridge = require('../../bridge/internalBridge');
 const askService = require('../ask/askService');
 
+// Actions that were shipped as keybinds but never implemented. They are filtered out of
+// the loaded keybinds so they are neither registered as global shortcuts nor advertised in
+// the shortcut editor. previousResponse/nextResponse default to Cmd+[ / Cmd+], which are
+// browser back/forward -- registering them stole those keys system-wide to drive handlers
+// that do not exist. Restore an entry here once the feature behind it is actually built.
+const RETIRED_ACTIONS = new Set(['previousResponse', 'nextResponse']);
+
 
 class ShortcutsService {
     constructor() {
@@ -67,8 +74,6 @@ class ShortcutsService {
             toggleClickThrough: isMac ? 'Cmd+M' : 'Ctrl+M',
             nextStep: isMac ? 'Cmd+Enter' : 'Ctrl+Enter',
             manualScreenshot: isMac ? 'Cmd+Shift+S' : 'Ctrl+Shift+S',
-            previousResponse: isMac ? 'Cmd+[' : 'Ctrl+[',
-            nextResponse: isMac ? 'Cmd+]' : 'Ctrl+]',
             scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
             scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
         };
@@ -86,6 +91,7 @@ class ShortcutsService {
 
         const keybinds = {};
         keybindsArray.forEach(k => {
+            if (RETIRED_ACTIONS.has(k.action)) return;
             keybinds[k.action] = k.accelerator;
         });
 
@@ -256,12 +262,6 @@ class ShortcutsService {
                              mainWindow.webContents.executeJavaScript('window.captureManualScreenshot && window.captureManualScreenshot();');
                         }
                     };
-                    break;
-                case 'previousResponse':
-                    callback = () => sendToRenderer('navigate-previous-response');
-                    break;
-                case 'nextResponse':
-                    callback = () => sendToRenderer('navigate-next-response');
                     break;
             }
             

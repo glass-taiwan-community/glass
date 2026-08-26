@@ -177,8 +177,6 @@ const DEFAULT_KEYBINDS = {
         toggleClickThrough: 'Cmd+M',
         nextStep: 'Cmd+Enter',
         manualScreenshot: 'Cmd+Shift+S',
-        previousResponse: 'Cmd+[',
-        nextResponse: 'Cmd+]',
         scrollUp: 'Cmd+Shift+Up',
         scrollDown: 'Cmd+Shift+Down',
     },
@@ -191,8 +189,6 @@ const DEFAULT_KEYBINDS = {
         toggleClickThrough: 'Ctrl+M',
         nextStep: 'Ctrl+Enter',
         manualScreenshot: 'Ctrl+Shift+S',
-        previousResponse: 'Ctrl+[',
-        nextResponse: 'Ctrl+]',
         scrollUp: 'Ctrl+Shift+Up',
         scrollDown: 'Ctrl+Shift+Down',
     }
