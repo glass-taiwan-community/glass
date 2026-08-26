@@ -217,7 +217,7 @@ class ShortcutsService {
                     callback = () => {
                         const askWindow = this.windowPool.get('ask');
                         if (askWindow && !askWindow.isDestroyed() && askWindow.isVisible()) {
-                            askWindow.webContents.send('scroll-response-up');
+                            askWindow.webContents.send('ask:scrollResponseUp');
                         }
                     };
                     break;
@@ -225,7 +225,7 @@ class ShortcutsService {
                     callback = () => {
                         const askWindow = this.windowPool.get('ask');
                         if (askWindow && !askWindow.isDestroyed() && askWindow.isVisible()) {
-                            askWindow.webContents.send('scroll-response-down');
+                            askWindow.webContents.send('ask:scrollResponseDown');
                         }
                     };
                     break;
