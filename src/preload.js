@@ -166,10 +166,10 @@ contextBridge.exposeInMainWorld('api', {
     onShowTextInput: (callback) => ipcRenderer.on('ask:showTextInput', callback),
     removeOnShowTextInput: (callback) => ipcRenderer.removeListener('ask:showTextInput', callback),
     
-    onScrollResponseUp: (callback) => ipcRenderer.on('aks:scrollResponseUp', callback),
-    removeOnScrollResponseUp: (callback) => ipcRenderer.removeListener('aks:scrollResponseUp', callback),
-    onScrollResponseDown: (callback) => ipcRenderer.on('aks:scrollResponseDown', callback),
-    removeOnScrollResponseDown: (callback) => ipcRenderer.removeListener('aks:scrollResponseDown', callback)
+    onScrollResponseUp: (callback) => ipcRenderer.on('ask:scrollResponseUp', callback),
+    removeOnScrollResponseUp: (callback) => ipcRenderer.removeListener('ask:scrollResponseUp', callback),
+    onScrollResponseDown: (callback) => ipcRenderer.on('ask:scrollResponseDown', callback),
+    removeOnScrollResponseDown: (callback) => ipcRenderer.removeListener('ask:scrollResponseDown', callback)
   },
 
   // src/ui/listen/ListenView.js

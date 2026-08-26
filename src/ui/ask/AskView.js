@@ -774,7 +774,10 @@ export class AskView extends LitElement {
         };
 
         if (window.api) {
-            window.api.askView.onShowTextInput(() => {
+            // Hold onto the listener references. disconnectedCallback removes these by
+            // identity, so registering an inline arrow function here would make every
+            // removal a silent no-op and leak a listener on each reconnect.
+            this.handleShowTextInput = () => {
                 console.log('Show text input signal received');
                 if (!this.showTextInput) {
                     this.showTextInput = true;
@@ -782,11 +785,11 @@ export class AskView extends LitElement {
                   } else {
                     this.focusTextInput();
                   }
-            });
+            };
 
-            window.api.askView.onScrollResponseUp(() => this.handleScroll('up'));
-            window.api.askView.onScrollResponseDown(() => this.handleScroll('down'));
-            window.api.askView.onAskStateUpdate((event, newState) => {
+            this.handleScrollResponseUp = () => this.handleScroll('up');
+            this.handleScrollResponseDown = () => this.handleScroll('down');
+            this.handleAskStateUpdate = (event, newState) => {
                 this.currentResponse = newState.currentResponse;
                 this.currentQuestion = newState.currentQuestion;
                 this.isLoading       = newState.isLoading;
@@ -802,7 +805,12 @@ export class AskView extends LitElement {
                     this.focusTextInput();
                   }
                 }
-              });
+              };
+
+            window.api.askView.onShowTextInput(this.handleShowTextInput);
+            window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
+            window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
+            window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
             console.log('AskView: IPC 이벤트 리스너 등록 완료');
         }
     }
@@ -832,8 +840,8 @@ export class AskView extends LitElement {
         if (window.api) {
             window.api.askView.removeOnAskStateUpdate(this.handleAskStateUpdate);
             window.api.askView.removeOnShowTextInput(this.handleShowTextInput);
-            window.api.askView.removeOnScrollResponseUp(this.handleScroll);
-            window.api.askView.removeOnScrollResponseDown(this.handleScroll);
+            window.api.askView.removeOnScrollResponseUp(this.handleScrollResponseUp);
+            window.api.askView.removeOnScrollResponseDown(this.handleScrollResponseDown);
             console.log('✅ AskView: IPC 이벤트 리스너 제거 필요');
         }
     }
