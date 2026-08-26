@@ -186,7 +186,9 @@ contextBridge.exposeInMainWorld('api', {
     onScrollDown: (callback) => ipcRenderer.on('listen:scrollDown', callback),
     removeOnScrollDown: (callback) => ipcRenderer.removeListener('listen:scrollDown', callback),
     onToggleViewMode: (callback) => ipcRenderer.on('listen:toggleViewMode', callback),
-    removeOnToggleViewMode: (callback) => ipcRenderer.removeListener('listen:toggleViewMode', callback)
+    removeOnToggleViewMode: (callback) => ipcRenderer.removeListener('listen:toggleViewMode', callback),
+    onActivateItem: (callback) => ipcRenderer.on('listen:activateItem', callback),
+    removeOnActivateItem: (callback) => ipcRenderer.removeListener('listen:activateItem', callback)
   },
 
   // src/ui/listen/stt/SttView.js

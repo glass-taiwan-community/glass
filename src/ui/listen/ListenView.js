@@ -460,13 +460,15 @@ export class ListenView extends LitElement {
             // Held as instance references so disconnectedCallback can remove them by
             // identity. The Listen window is never the key window, so these shortcut
             // messages are the only way to scroll or switch panes from the keyboard.
-            this.handleScrollUp = () => this.scrollActivePane(-SCROLL_STEP_PX);
-            this.handleScrollDown = () => this.scrollActivePane(SCROLL_STEP_PX);
+            this.handleScrollUp = () => this.moveOrScroll(-1);
+            this.handleScrollDown = () => this.moveOrScroll(1);
             this.handleToggleViewMode = () => this.toggleViewMode();
+            this.handleActivateItem = () => this.activateSelectedItem();
 
             window.api.listenView.onScrollUp(this.handleScrollUp);
             window.api.listenView.onScrollDown(this.handleScrollDown);
             window.api.listenView.onToggleViewMode(this.handleToggleViewMode);
+            window.api.listenView.onActivateItem(this.handleActivateItem);
 
             window.api.listenView.onSessionStateChanged((event, { isActive }) => {
                 const wasActive = this.isSessionActive;
@@ -509,20 +511,31 @@ export class ListenView extends LitElement {
             window.api.listenView.removeOnScrollUp(this.handleScrollUp);
             window.api.listenView.removeOnScrollDown(this.handleScrollDown);
             window.api.listenView.removeOnToggleViewMode(this.handleToggleViewMode);
+            window.api.listenView.removeOnActivateItem(this.handleActivateItem);
         }
     }
 
     /**
-     * Scroll whichever pane is currently showing. viewMode guarantees exactly one of
+     * Directional input for whichever pane is showing. Insights is a list of askable
+     * items, so the arrows move the selection there (which scrolls it into view). The
+     * transcript has no items, so they scroll it. viewMode guarantees exactly one of
      * stt-view / summary-view is visible at a time.
-     * @param {number} delta - pixels to scroll; negative scrolls up.
+     * @param {number} direction - -1 for up, 1 for down.
      */
-    scrollActivePane(delta) {
-        const activeView = this.viewMode === 'transcript'
-            ? this.shadowRoot.querySelector('stt-view')
-            : this.shadowRoot.querySelector('summary-view');
+    moveOrScroll(direction) {
+        if (this.viewMode === 'transcript') {
+            this.shadowRoot.querySelector('stt-view')?.scrollContent(direction * SCROLL_STEP_PX);
+            return;
+        }
 
-        activeView?.scrollContent(delta);
+        this.shadowRoot.querySelector('summary-view')?.moveSelection(direction);
+    }
+
+    /** Ask about the selected insight. No-op in the transcript, which has no items. */
+    activateSelectedItem() {
+        if (this.viewMode === 'transcript') return;
+
+        this.shadowRoot.querySelector('summary-view')?.activateSelected();
     }
 
     startTimer() {
