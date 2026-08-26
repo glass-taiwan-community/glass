@@ -245,7 +245,9 @@ function changeAllWindowsVisibility(windowPool, targetVisibility) {
     lastVisibleWindows.forEach(name => {
       const win = windowPool.get(name);
       if (win && !win.isDestroyed())
-        win.show();
+        // showInactive keeps the frontmost app frontmost. show() would activate Glass and
+        // strip key status from whatever the user was working in.
+        win.showInactive();
     });
   }
 
@@ -299,7 +301,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             if (position) {
                 win.setBounds(position);
                 win.__lockedByButton = true;
-                win.show();
+                win.showInactive();
                 win.moveTop();
                 win.setAlwaysOnTop(true);
             } else {
@@ -337,6 +339,8 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             }
             // globalShortcut.unregisterAll();
             disableClicks(win);
+            // Intentionally show() and not showInactive(): the shortcut recorder has to be
+            // the key window to capture the accelerator the user is pressing.
             win.show();
         } else {
             if (process.platform === 'darwin') {
@@ -380,7 +384,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
 
             win.setOpacity(0);
             win.setBounds(startPos);
-            win.show();
+            win.showInactive();
 
             movementManager.fade(win, { to: 1 });
             movementManager.animateLayout(targetLayout);
