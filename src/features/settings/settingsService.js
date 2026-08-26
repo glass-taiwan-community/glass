@@ -182,6 +182,7 @@ const DEFAULT_KEYBINDS = {
         scrollListenUp: 'Cmd+Alt+Up',
         scrollListenDown: 'Cmd+Alt+Down',
         toggleListenView: 'Cmd+Alt+T',
+        activateListenItem: 'Cmd+Alt+Enter',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -197,6 +198,7 @@ const DEFAULT_KEYBINDS = {
         scrollListenUp: 'Ctrl+Alt+Up',
         scrollListenDown: 'Ctrl+Alt+Down',
         toggleListenView: 'Ctrl+Alt+T',
+        activateListenItem: 'Ctrl+Alt+Enter',
     }
 };
 

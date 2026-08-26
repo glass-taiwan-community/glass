@@ -217,6 +217,13 @@ export class SummaryView extends LitElement {
             transition: all 0.15s ease;
         }
 
+        /* Keyboard selection. The Listen window is never the key window, so the OS draws
+           no focus ring -- this is the only indication of what Ask would be sent. */
+        .markdown-content.selected {
+            background: rgba(255, 255, 255, 0.16);
+            box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.85);
+        }
+
         .markdown-content:hover {
             background: rgba(255, 255, 255, 0.1);
             transform: translateX(2px);
@@ -272,10 +279,12 @@ export class SummaryView extends LitElement {
         hasCompletedRecording: { type: Boolean },
         isFinalSummary: { type: Boolean },
         finalSummaryStatus: { type: String },
+        selectedIndex: { type: Number },
     };
 
     constructor() {
         super();
+        this.selectedIndex = -1;
         this.structuredData = {
             summary: [],
             topic: { header: '', bullets: [] },
@@ -481,17 +490,76 @@ export class SummaryView extends LitElement {
         }
     }
 
-    _renderClickableItem(text) {
+    _renderClickableItem(text, index) {
         return html`
             <div
-                class="markdown-content"
+                class="markdown-content ${index === this.selectedIndex ? 'selected' : ''}"
                 data-markdown-id="${text.substring(0, 20)}"
                 data-original-text="${text}"
+                data-item-index="${index}"
                 @click=${() => this.handleRequestClick(text)}
             >
                 ${text}
             </div>
         `;
+    }
+
+    /**
+     * The clickable items, grouped exactly as render() lays them out. render() consumes
+     * this same helper so a flat index always refers to the item the user can see.
+     * @returns {{summary: string[], topic: string[], actions: string[], followUps: string[]}}
+     */
+    _getItemGroups() {
+        const data = this.structuredData || {
+            summary: [],
+            topic: { header: '', bullets: [] },
+            actions: [],
+        };
+
+        return {
+            // The live snapshot is capped at 5 for glanceability mid-meeting. The final
+            // summary is the durable record, so it is shown in full.
+            summary: data.summary.slice(0, this.isFinalSummary ? data.summary.length : 5),
+            topic: data.topic.header ? data.topic.bullets.slice(0, 3) : [],
+            actions: data.actions.slice(0, 5),
+            followUps: this.hasCompletedRecording && data.followUps ? data.followUps : [],
+        };
+    }
+
+    /** @returns {string[]} every clickable item, in the order they appear on screen. */
+    _getClickableItems() {
+        const groups = this._getItemGroups();
+        return [...groups.summary, ...groups.topic, ...groups.actions, ...groups.followUps];
+    }
+
+    /**
+     * Move the keyboard selection. Driven by a global shortcut, since this window never
+     * holds key focus and therefore never receives DOM key events.
+     * @param {number} delta - positions to move; negative moves toward the top.
+     */
+    moveSelection(delta) {
+        const count = this._getClickableItems().length;
+        if (count === 0) {
+            this.selectedIndex = -1;
+            return;
+        }
+
+        // From "nothing selected", moving either way lands on the nearest end.
+        const from = this.selectedIndex < 0 ? (delta > 0 ? -1 : count) : this.selectedIndex;
+        this.selectedIndex = Math.max(0, Math.min(count - 1, from + delta));
+        this.updateComplete.then(() => this._scrollSelectedIntoView());
+    }
+
+    /** Send the selected item to Ask, the keyboard equivalent of clicking it. */
+    activateSelected() {
+        const items = this._getClickableItems();
+        const text = items[this.selectedIndex];
+        if (text) this.handleRequestClick(text);
+    }
+
+    _scrollSelectedIntoView() {
+        const el = this.shadowRoot.querySelector(`[data-item-index="${this.selectedIndex}"]`);
+        el?.scrollIntoView({ block: 'nearest' });
     }
 
     /**
@@ -530,6 +598,13 @@ export class SummaryView extends LitElement {
     updated(changedProperties) {
         super.updated(changedProperties);
         this.renderMarkdownContent();
+
+        // Insights stream in and re-render while a selection is held. Clamp rather than
+        // reset, so the selection survives an update that only appends items.
+        if (changedProperties.has('structuredData') && this.selectedIndex >= 0) {
+            const count = this._getClickableItems().length;
+            this.selectedIndex = count === 0 ? -1 : Math.min(this.selectedIndex, count - 1);
+        }
     }
 
     render() {
@@ -544,6 +619,13 @@ export class SummaryView extends LitElement {
         };
 
         const hasAnyContent = data.summary.length > 0 || data.topic.bullets.length > 0 || data.actions.length > 0;
+
+        // Flat indices across all four sections, so moveSelection() and the rendered
+        // highlight always agree on which item a given index means.
+        const groups = this._getItemGroups();
+        const topicOffset = groups.summary.length;
+        const actionsOffset = topicOffset + groups.topic.length;
+        const followUpsOffset = actionsOffset + groups.actions.length;
 
         return html`
             <div class="insights-container">
@@ -564,42 +646,32 @@ export class SummaryView extends LitElement {
                         <insights-title>
                             ${this.isFinalSummary ? '完整會議摘要' : 'Current Summary'}
                         </insights-title>
-                        ${data.summary.length > 0
-                            ? data.summary
-                                  // The live snapshot is capped at 5 for glanceability mid-meeting.
-                                  // The final summary is the durable record and is read after the
-                                  // meeting, so show all of it - truncating it here would silently
-                                  // hide whole-session points, which is the defect being fixed.
-                                  .slice(0, this.isFinalSummary ? data.summary.length : 5)
-                                  .map(
-                                      (bullet) => this._renderClickableItem(bullet)
-                                  )
+                        ${groups.summary.length > 0
+                            ? groups.summary.map(
+                                  (bullet, i) => this._renderClickableItem(bullet, i)
+                              )
                             : html` <div class="request-item">No content yet...</div> `}
                         ${data.topic.header
                             ? html`
                                   <insights-title>${data.topic.header}</insights-title>
-                                  ${data.topic.bullets
-                                      .slice(0, 3)
-                                      .map(
-                                          (bullet) => this._renderClickableItem(bullet)
-                                      )}
+                                  ${groups.topic.map(
+                                      (bullet, i) => this._renderClickableItem(bullet, topicOffset + i)
+                                  )}
                               `
                             : ''}
                         ${data.actions.length > 0
                             ? html`
                                   <insights-title>Actions</insights-title>
-                                  ${data.actions
-                                      .slice(0, 5)
-                                      .map(
-                                          (action) => this._renderClickableItem(action)
-                                      )}
+                                  ${groups.actions.map(
+                                      (action, i) => this._renderClickableItem(action, actionsOffset + i)
+                                  )}
                               `
                             : ''}
                         ${this.hasCompletedRecording && data.followUps && data.followUps.length > 0
                             ? html`
                                   <insights-title>Follow-Ups</insights-title>
-                                  ${data.followUps.map(
-                                      (followUp) => this._renderClickableItem(followUp)
+                                  ${groups.followUps.map(
+                                      (followUp, i) => this._renderClickableItem(followUp, followUpsOffset + i)
                                   )}
                               `
                             : ''}

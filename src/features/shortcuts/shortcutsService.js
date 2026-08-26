@@ -79,6 +79,7 @@ class ShortcutsService {
             scrollListenUp: isMac ? 'Cmd+Alt+Up' : 'Ctrl+Alt+Up',
             scrollListenDown: isMac ? 'Cmd+Alt+Down' : 'Ctrl+Alt+Down',
             toggleListenView: isMac ? 'Cmd+Alt+T' : 'Ctrl+Alt+T',
+            activateListenItem: isMac ? 'Cmd+Alt+Enter' : 'Ctrl+Alt+Enter',
         };
     }
 
@@ -256,6 +257,9 @@ class ShortcutsService {
                     break;
                 case 'toggleListenView':
                     callback = () => sendToListen('listen:toggleViewMode');
+                    break;
+                case 'activateListenItem':
+                    callback = () => sendToListen('listen:activateItem');
                     break;
                 case 'moveUp':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };
