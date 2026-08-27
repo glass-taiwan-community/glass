@@ -487,6 +487,13 @@ export class MainHeader extends LitElement {
             };
             window.api.mainHeader.onListenChangeSessionResult(this._sessionStateTextListener);
 
+            // Route the shortcut through the click handler rather than calling the IPC
+            // directly. listenSessionStatus lives here, not in the main process, so this is
+            // what knows whether the session should start, stop or be dismissed -- and it
+            // reuses the isTogglingSession guard against double firing.
+            this._toggleListenSessionListener = () => this._handleListenClick();
+            window.api.mainHeader.onToggleListenSession(this._toggleListenSessionListener);
+
             this._shortcutListener = (event, keybinds) => {
                 console.log('[MainHeader] Received updated shortcuts:', keybinds);
                 this.shortcuts = keybinds;
@@ -510,6 +517,9 @@ export class MainHeader extends LitElement {
             }
             if (this._shortcutListener) {
                 window.api.mainHeader.removeOnShortcutsUpdated(this._shortcutListener);
+            }
+            if (this._toggleListenSessionListener) {
+                window.api.mainHeader.removeOnToggleListenSession(this._toggleListenSessionListener);
             }
         }
     }
