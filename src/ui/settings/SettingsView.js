@@ -1119,6 +1119,10 @@ export class SettingsView extends LitElement {
             { name: 'Ask About Selected', accelerator: this.shortcuts.activateListenItem },
             { name: 'Close Ask Window', accelerator: this.shortcuts.closeAsk },
             { name: 'Listen / Stop / Done', accelerator: this.shortcuts.toggleListenSession },
+            { name: 'Snap Left', accelerator: this.shortcuts.edgeSnapLeft },
+            { name: 'Snap Right', accelerator: this.shortcuts.edgeSnapRight },
+            { name: 'Snap Up', accelerator: this.shortcuts.edgeSnapUp },
+            { name: 'Snap Down', accelerator: this.shortcuts.edgeSnapDown },
             { name: 'Insights / Transcript', accelerator: this.shortcuts.toggleListenView },
         ];
     }

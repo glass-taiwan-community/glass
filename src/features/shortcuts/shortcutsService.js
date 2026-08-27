@@ -84,6 +84,10 @@ class ShortcutsService {
             // other application, breaking dialogs, menus and fullscreen everywhere.
             closeAsk: isMac ? 'Cmd+Alt+\\' : 'Ctrl+Alt+\\',
             toggleListenSession: isMac ? 'Cmd+Alt+L' : 'Ctrl+Alt+L',
+            edgeSnapLeft: isMac ? 'Cmd+Shift+Alt+Left' : 'Ctrl+Shift+Alt+Left',
+            edgeSnapRight: isMac ? 'Cmd+Shift+Alt+Right' : 'Ctrl+Shift+Alt+Right',
+            edgeSnapUp: isMac ? 'Cmd+Shift+Alt+Up' : 'Ctrl+Shift+Alt+Up',
+            edgeSnapDown: isMac ? 'Cmd+Shift+Alt+Down' : 'Ctrl+Shift+Alt+Down',
         };
     }
 
@@ -202,17 +206,6 @@ class ShortcutsService {
             });
         }
 
-        // Edge snapping
-        const edgeDirections = [
-            { key: `${modifier}+Shift+Left`, direction: 'left' },
-            { key: `${modifier}+Shift+Right`, direction: 'right' },
-        ];
-        edgeDirections.forEach(({ key, direction }) => {
-            globalShortcut.register(key, () => {
-                if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction });
-            });
-        });
-
         // --- User-configurable shortcuts ---
         if (header?.currentHeaderState === 'apikey') {
             if (keybinds.toggleVisibility) {
@@ -291,6 +284,20 @@ class ShortcutsService {
                     break;
                 case 'moveRight':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'right' }); };
+                    break;
+                // Edge snap jumps the header to a screen edge. moveToEdge already handles
+                // all four directions; these are the bindings that reach it.
+                case 'edgeSnapLeft':
+                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'left' }); };
+                    break;
+                case 'edgeSnapRight':
+                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'right' }); };
+                    break;
+                case 'edgeSnapUp':
+                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'up' }); };
+                    break;
+                case 'edgeSnapDown':
+                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'down' }); };
                     break;
                 case 'toggleClickThrough':
                      callback = () => {
