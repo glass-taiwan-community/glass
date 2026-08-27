@@ -185,6 +185,10 @@ const DEFAULT_KEYBINDS = {
         activateListenItem: 'Cmd+Alt+Enter',
         closeAsk: 'Cmd+Alt+\\',
         toggleListenSession: 'Cmd+Alt+L',
+        edgeSnapLeft: 'Cmd+Shift+Alt+Left',
+        edgeSnapRight: 'Cmd+Shift+Alt+Right',
+        edgeSnapUp: 'Cmd+Shift+Alt+Up',
+        edgeSnapDown: 'Cmd+Shift+Alt+Down',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -203,6 +207,10 @@ const DEFAULT_KEYBINDS = {
         activateListenItem: 'Ctrl+Alt+Enter',
         closeAsk: 'Ctrl+Alt+\\',
         toggleListenSession: 'Ctrl+Alt+L',
+        edgeSnapLeft: 'Ctrl+Shift+Alt+Left',
+        edgeSnapRight: 'Ctrl+Shift+Alt+Right',
+        edgeSnapUp: 'Ctrl+Shift+Alt+Up',
+        edgeSnapDown: 'Ctrl+Shift+Alt+Down',
     }
 };
 
