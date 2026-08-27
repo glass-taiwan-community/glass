@@ -83,6 +83,7 @@ class ShortcutsService {
             // Deliberately not bare Escape: a global shortcut would take Escape from every
             // other application, breaking dialogs, menus and fullscreen everywhere.
             closeAsk: isMac ? 'Cmd+Alt+\\' : 'Ctrl+Alt+\\',
+            toggleListenSession: isMac ? 'Cmd+Alt+L' : 'Ctrl+Alt+L',
         };
     }
 
@@ -263,6 +264,16 @@ class ShortcutsService {
                     break;
                 case 'activateListenItem':
                     callback = () => sendToListen('listen:activateItem');
+                    break;
+                case 'toggleListenSession':
+                    // The header owns listenSessionStatus, so it decides between start,
+                    // stop and dismiss. Sending it the same event a click produces keeps
+                    // one state machine rather than duplicating it in the main process.
+                    callback = () => {
+                        if (header && !header.isDestroyed()) {
+                            header.webContents.send('shortcut:toggleListenSession');
+                        }
+                    };
                     break;
                 case 'closeAsk':
                     // Same path as the window's X button, so an in-flight stream is aborted

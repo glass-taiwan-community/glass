@@ -184,6 +184,7 @@ const DEFAULT_KEYBINDS = {
         toggleListenView: 'Cmd+Alt+T',
         activateListenItem: 'Cmd+Alt+Enter',
         closeAsk: 'Cmd+Alt+\\',
+        toggleListenSession: 'Cmd+Alt+L',
     },
     windows: {
         moveUp: 'Ctrl+Up',
@@ -201,6 +202,7 @@ const DEFAULT_KEYBINDS = {
         toggleListenView: 'Ctrl+Alt+T',
         activateListenItem: 'Ctrl+Alt+Enter',
         closeAsk: 'Ctrl+Alt+\\',
+        toggleListenSession: 'Ctrl+Alt+L',
     }
 };
 

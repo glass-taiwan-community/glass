@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld('api', {
     sendToggleAllWindowsVisibility: () => ipcRenderer.invoke('shortcut:toggleAllWindowsVisibility'),
     
     // Listeners
+    onToggleListenSession: (callback) => ipcRenderer.on('shortcut:toggleListenSession', callback),
+    removeOnToggleListenSession: (callback) => ipcRenderer.removeListener('shortcut:toggleListenSession', callback),
     onListenChangeSessionResult: (callback) => ipcRenderer.on('listen:changeSessionResult', callback),
     removeOnListenChangeSessionResult: (callback) => ipcRenderer.removeListener('listen:changeSessionResult', callback),
     onShortcutsUpdated: (callback) => ipcRenderer.on('shortcuts-updated', callback),
