@@ -33,6 +33,21 @@ function createApp(eventBridge) {
     app.use('/api/presets', require('./routes/presets'));
     app.use('/api/precontext', require('./routes/precontext'));
 
+    // Serve saved screen-only Ask screenshots from userData/ask-screenshots. This express app
+    // runs in the Electron main process, so it can read userData directly. path.basename
+    // sanitizes the name to that directory -- no traversal, only files we wrote (uuid.jpg).
+    app.get('/api/ask-screenshots/:file', (req, res) => {
+        try {
+            const path = require('path');
+            const { app: electronApp } = require('electron');
+            const dir = path.join(electronApp.getPath('userData'), 'ask-screenshots');
+            const safe = path.basename(req.params.file);
+            res.sendFile(path.join(dir, safe), (err) => { if (err && !res.headersSent) res.status(404).end(); });
+        } catch (e) {
+            res.status(500).end();
+        }
+    });
+
     app.get('/api/sync/status', (req, res) => {
         res.json({
             status: 'online',
