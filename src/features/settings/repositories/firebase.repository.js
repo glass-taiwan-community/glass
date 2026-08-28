@@ -146,6 +146,31 @@ async function setSttLanguage(uid, language) {
     }
 }
 
+async function getSaveAskScreenshots(uid) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        return userSnap.exists() ? !!userSnap.data().save_ask_screenshots : false;
+    } catch (error) {
+        console.error('Firebase: Error getting save_ask_screenshots:', error);
+        return false;
+    }
+}
+
+async function setSaveAskScreenshots(uid, enabled) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+            await updateDoc(userDocRef, { save_ask_screenshots: !!enabled });
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('Firebase: Error setting save_ask_screenshots:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function getVoiceAskEnabled(uid) {
     const userDocRef = doc(getFirestoreInstance(), 'users', uid);
     try {
@@ -200,4 +225,6 @@ module.exports = {
     setSttLanguage,
     getVoiceAskEnabled,
     setVoiceAskEnabled,
+    getSaveAskScreenshots,
+    setSaveAskScreenshots,
 }; 

@@ -1,14 +1,14 @@
 const sqliteClient = require('../../common/services/sqliteClient');
 
-function addAiMessage({ uid, sessionId, role, content, model = 'unknown' }) {
+function addAiMessage({ uid, sessionId, role, content, model = 'unknown', imagePath = null }) {
     // uid is ignored in the SQLite implementation
     const db = sqliteClient.getDb();
     const messageId = require('crypto').randomUUID();
     const now = Math.floor(Date.now() / 1000);
-    const query = `INSERT INTO ai_messages (id, session_id, sent_at, role, content, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const query = `INSERT INTO ai_messages (id, session_id, sent_at, role, content, model, image_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
     
     try {
-        db.prepare(query).run(messageId, sessionId, now, role, content, model, now);
+        db.prepare(query).run(messageId, sessionId, now, role, content, model, imagePath, now);
         return { id: messageId };
     } catch (err) {
         console.error('SQLite: Failed to add AI message:', err);

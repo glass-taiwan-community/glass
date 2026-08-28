@@ -10,7 +10,7 @@ function aiMessagesCol(sessionId) {
     return collection(db, `sessions/${sessionId}/ai_messages`).withConverter(aiMessageConverter);
 }
 
-async function addAiMessage({ uid, sessionId, role, content, model = 'unknown' }) {
+async function addAiMessage({ uid, sessionId, role, content, model = 'unknown', imagePath = null }) {
     const now = Timestamp.now();
     const newMessage = {
         uid, // To identify the author of the message
@@ -19,6 +19,7 @@ async function addAiMessage({ uid, sessionId, role, content, model = 'unknown' }
         role,
         content,
         model,
+        image_path: imagePath,
         created_at: now,
     };
     

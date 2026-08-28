@@ -12,9 +12,9 @@ function getBaseRepository() {
 
 // The adapter layer that injects the UID
 const askRepositoryAdapter = {
-    addAiMessage: ({ sessionId, role, content, model }) => {
+    addAiMessage: ({ sessionId, role, content, model, imagePath }) => {
         const uid = authService.getCurrentUserId();
-        return getBaseRepository().addAiMessage({ uid, sessionId, role, content, model });
+        return getBaseRepository().addAiMessage({ uid, sessionId, role, content, model, imagePath });
     },
     getAllAiMessagesBySessionId: (sessionId) => {
         // This function does not require a UID at the service level.

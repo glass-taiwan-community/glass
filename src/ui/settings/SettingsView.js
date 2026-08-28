@@ -511,6 +511,7 @@ export class SettingsView extends LitElement {
         // Voice-to-Ask native hook availability + enabled state
         voiceAskAvailability: { type: Object, state: true },
         voiceAskEnabled: { type: Boolean, state: true },
+        saveAskScreenshots: { type: Boolean, state: true },
     };
     //////// after_modelStateService ////////
 
@@ -520,6 +521,7 @@ export class SettingsView extends LitElement {
         this.shortcuts = {};
         this.voiceAskAvailability = null;
         this.voiceAskEnabled = false;
+        this.saveAskScreenshots = false;
         this.firebaseUser = null;
         this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '' };
         this.baseUrls = {};
@@ -666,6 +668,9 @@ export class SettingsView extends LitElement {
             ]);
             if (window.api.voiceAsk) {
                 try { this.voiceAskEnabled = await window.api.voiceAsk.getEnabled(); } catch { this.voiceAskEnabled = false; }
+            }
+            if (window.api.settingsView.getSaveAskScreenshots) {
+                try { this.saveAskScreenshots = await window.api.settingsView.getSaveAskScreenshots(); } catch { this.saveAskScreenshots = false; }
             }
             
             if (userState && userState.isLoggedIn) this.firebaseUser = userState;
@@ -1185,6 +1190,17 @@ export class SettingsView extends LitElement {
         }
     }
 
+    async handleToggleSaveScreenshots() {
+        const next = !this.saveAskScreenshots;
+        try {
+            const result = await window.api.settingsView.setSaveAskScreenshots(next);
+            if (result && result.success !== false) this.saveAskScreenshots = next;
+        } catch (e) {
+            console.error('[SettingsView] save-screenshots toggle failed:', e);
+        }
+        this.requestUpdate();
+    }
+
     async handleToggleVoiceAsk() {
         if (!this.voiceAskAvailability || !this.voiceAskAvailability.available) return;
         const next = !this.voiceAskEnabled;
@@ -1495,6 +1511,20 @@ export class SettingsView extends LitElement {
                         </div>
                     </div>
                 ` : ''}
+
+                <div class="shortcut-item">
+                    <span class="shortcut-name">Save screen captures to history</span>
+                    <div class="shortcut-keys">
+                        <span
+                            @click=${this.handleToggleSaveScreenshots}
+                            title="Save the screenshot from a screen-only Ask (Cmd+Enter twice) to your activity history"
+                            style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
+                                   background:${this.saveAskScreenshots ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
+                                   color:${this.saveAskScreenshots ? '#6fdd8b' : '#bbb'}">
+                            ${this.saveAskScreenshots ? 'On' : 'Off'}
+                        </span>
+                    </div>
+                </div>
 
                 <div class="preset-section">
                     <div class="preset-header">

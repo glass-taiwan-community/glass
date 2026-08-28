@@ -460,6 +460,25 @@ async function setSttLanguageSetting(language) {
     }
 }
 
+async function getSaveAskScreenshots() {
+    try {
+        return await settingsRepository.getSaveAskScreenshots();
+    } catch (error) {
+        console.error('[SettingsService] Error getting save-ask-screenshots:', error);
+        return false;
+    }
+}
+
+async function setSaveAskScreenshots(enabled) {
+    try {
+        await settingsRepository.setSaveAskScreenshots(enabled);
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting save-ask-screenshots:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function getVoiceAskEnabled() {
     try {
         return await settingsRepository.getVoiceAskEnabled();
@@ -518,6 +537,8 @@ module.exports = {
     getSttLanguageSetting,
     getVoiceAskEnabled,
     setVoiceAskEnabled,
+    getSaveAskScreenshots,
+    setSaveAskScreenshots,
     setSttLanguageSetting,
     SUPPORTED_STT_LANGUAGES,
     // Model settings facade

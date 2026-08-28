@@ -114,6 +114,35 @@ function getAutoUpdate(uid) {
     }
 }
 
+function getSaveAskScreenshots(uid) {
+    const db = sqliteClient.getDb();
+    try {
+        const row = db.prepare('SELECT save_ask_screenshots FROM users WHERE uid = ?').get(uid);
+        return row ? row.save_ask_screenshots === 1 : false;
+    } catch (error) {
+        console.error('SQLite: Failed to get save_ask_screenshots:', error);
+        return false;
+    }
+}
+
+function setSaveAskScreenshots(uid, enabled) {
+    const db = sqliteClient.getDb();
+    const targetUid = uid || sqliteClient.defaultUserId;
+    const val = enabled ? 1 : 0;
+    try {
+        const result = db.prepare('UPDATE users SET save_ask_screenshots = ? WHERE uid = ?').run(val, targetUid);
+        if (result.changes === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            db.prepare('INSERT OR REPLACE INTO users (uid, display_name, email, created_at, save_ask_screenshots) VALUES (?, ?, ?, ?, ?)')
+              .run(targetUid, 'User', 'user@example.com', now, val);
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('SQLite: Failed to set save_ask_screenshots:', error);
+        throw error;
+    }
+}
+
 function getVoiceAskEnabled(uid) {
     const db = sqliteClient.getDb();
     try {
@@ -204,5 +233,7 @@ module.exports = {
     getSttLanguage,
     setSttLanguage,
     getVoiceAskEnabled,
-    setVoiceAskEnabled
+    setVoiceAskEnabled,
+    getSaveAskScreenshots,
+    setSaveAskScreenshots
 };
