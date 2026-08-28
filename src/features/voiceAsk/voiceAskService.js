@@ -215,8 +215,17 @@ async function handleAudioClip(payload) {
 
         console.log(`[VoiceAsk] transcript: "${transcript}" -- sending to Ask`);
         const askService = require('../ask/askService');
-        // sendMessage attaches the screenshot automatically; [] = no prior conversation context.
-        await askService.sendMessage(transcript, []);
+        // Pass the live Listen transcript as context, same as the typed and summary-click Ask
+        // paths do. Without it, a question like "summarize what we're talking about" reaches
+        // the model with no idea what "we" refers to. Empty when no Listen session is active.
+        let conversationHistory = [];
+        try {
+            conversationHistory = require('../listen/listenService').getConversationHistory() || [];
+        } catch (e) {
+            console.error('[VoiceAsk] could not load Listen context:', e.message);
+        }
+        console.log(`[VoiceAsk] attaching ${conversationHistory.length} conversation turn(s) as context`);
+        await askService.sendMessage(transcript, conversationHistory);
         return { success: true, transcript };
     } catch (err) {
         console.error('[VoiceAsk] handleAudioClip error:', err.message);
