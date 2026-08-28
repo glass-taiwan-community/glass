@@ -27,6 +27,7 @@ module.exports = {
       if (enabled) voiceAskService.start(); else voiceAskService.stop();
       return result;
     });
+    ipcMain.handle('voiceAsk:submitAudioClip', async (e, payload) => await voiceAskService.handleAudioClip(payload));
     ipcMain.handle('settings:get-auto-update', async () => await settingsService.getAutoUpdateSetting());
     ipcMain.handle('settings:set-auto-update', async (event, isEnabled) => await settingsService.setAutoUpdateSetting(isEnabled));
     ipcMain.handle('settings:get-stt-language', async () => await settingsService.getSttLanguageSetting());

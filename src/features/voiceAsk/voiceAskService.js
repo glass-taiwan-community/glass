@@ -140,6 +140,26 @@ function stop() {
     }
 }
 
+/**
+ * Receive a recorded clip from the renderer. STEP 3a: log its size/duration to prove capture
+ * works end to end. STEP 3b will feed it to an ephemeral STT session and send the transcript
+ * (plus screenshot) to Ask.
+ * @param {{chunks: string[], sampleRate: number, durationMs: number}} payload
+ */
+async function handleAudioClip(payload) {
+    try {
+        const chunks = (payload && payload.chunks) || [];
+        const bytes = chunks.reduce((n, b64) => n + Math.floor((b64.length * 3) / 4), 0);
+        const durationMs = payload && payload.durationMs;
+        console.log(`[VoiceAsk] received audio clip: ${chunks.length} chunk(s), ~${bytes} bytes, ${durationMs}ms @ ${payload && payload.sampleRate}Hz`);
+        // STEP 3b: transcribe + askService.sendMessage(transcript).
+        return { success: true, bytes, chunks: chunks.length };
+    } catch (err) {
+        console.error('[VoiceAsk] handleAudioClip error:', err.message);
+        return { success: false, error: err.message };
+    }
+}
+
 /** @returns {boolean} whether the global hook is currently running */
 function isRunning() {
     return hookRunning;
@@ -150,4 +170,4 @@ function initialize() {
     checkAvailability();
 }
 
-module.exports = { initialize, checkAvailability, getAvailability, start, stop, isRunning };
+module.exports = { initialize, checkAvailability, getAvailability, start, stop, isRunning, handleAudioClip };

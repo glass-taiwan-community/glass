@@ -226,6 +226,7 @@ contextBridge.exposeInMainWorld('api', {
     setEnabled: (enabled) => ipcRenderer.invoke('voiceAsk:setEnabled', enabled),
     onRecordingStateChanged: (callback) => ipcRenderer.on('voiceAsk:recordingStateChanged', callback),
     removeOnRecordingStateChanged: (callback) => ipcRenderer.removeListener('voiceAsk:recordingStateChanged', callback),
+    submitAudioClip: (payload) => ipcRenderer.invoke('voiceAsk:submitAudioClip', payload),
   },
 
   settingsView: {
