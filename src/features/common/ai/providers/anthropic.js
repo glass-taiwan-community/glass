@@ -59,6 +59,14 @@ async function createSTT({ apiKey, language = "en", callbacks = {}, ...config })
   }
 }
 
+// Sampling params (temperature/top_p/top_k) were removed from the current Claude families:
+// Fable 5, Opus 5, Opus 4.8, Opus 4.7, and Sonnet 5 reject `temperature` with a 400
+// ("temperature is deprecated for this model"). They remain valid on Opus 4.6, Sonnet 4.6,
+// and older models. Omit temperature only for the models that reject it.
+function modelRejectsSampling(model = '') {
+  return /claude-(fable-5|mythos-5|opus-5|opus-4-8|opus-4-7|sonnet-5)/.test(model);
+}
+
 /**
  * Creates an Anthropic LLM instance
  * @param {object} opts - Configuration options
@@ -104,7 +112,7 @@ function createLLM({ apiKey, model = "claude-sonnet-4-5", temperature = 0.7, max
         const response = await client.messages.create({
           model: model,
           max_tokens: maxTokens,
-          temperature: temperature,
+          ...(modelRejectsSampling(model) ? {} : { temperature }),
           system: systemPrompt || undefined,
           messages: messages,
         })
@@ -171,7 +179,7 @@ function createLLM({ apiKey, model = "claude-sonnet-4-5", temperature = 0.7, max
       const response = await client.messages.create({
         model: model,
         max_tokens: maxTokens,
-        temperature: temperature,
+        ...(modelRejectsSampling(model) ? {} : { temperature }),
         system: systemPrompt || undefined,
         messages: anthropicMessages,
       })
@@ -266,7 +274,7 @@ function createStreamingLLM({
             const stream = await client.messages.create({
               model: model,
               max_tokens: maxTokens,
-              temperature: temperature,
+              ...(modelRejectsSampling(model) ? {} : { temperature }),
               system: systemPrompt || undefined,
               messages: anthropicMessages,
               stream: true,
