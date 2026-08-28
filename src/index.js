@@ -202,6 +202,8 @@ app.whenReady().then(async () => {
         // Probe the native voice-input hook early and log availability. Guarded internally,
         // so a load failure reports unavailable rather than blocking startup.
         voiceAskService.initialize();
+        // Enforce the 30-day retention window on saved Ask screenshots.
+        askService.cleanupOldScreenshots().catch(() => {});
         // Opt-in: only install the global keyboard hook if the user enabled it.
         try {
             if (await settingsService.getVoiceAskEnabled()) voiceAskService.start();
@@ -358,6 +360,7 @@ function setupWebDataHandlers() {
                     result = { session, transcripts, ai_messages, summary };
                     break;
                 case 'delete-session':
+                    await askService.deleteScreenshotsForSession(payload);
                     result = await sessionRepository.deleteWithRelatedData(payload);
                     break;
                 case 'create-session':

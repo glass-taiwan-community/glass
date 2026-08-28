@@ -51,6 +51,7 @@ export interface AiMessage {
   content: string;
   tokens?: number;
   model?: string;
+  image_path?: string | null;
   created_at: number;
   sync_state: 'clean' | 'dirty';
 }
@@ -277,6 +278,10 @@ export const getApiHeaders = (): HeadersInit => {
   return headers;
 };
 
+
+// Base origin for building direct asset URLs (e.g. <img src> for saved screenshots), where
+// apiCall's header injection doesn't apply.
+export const getApiOrigin = (): string => API_ORIGIN;
 
 export const apiCall = async (path: string, options: RequestInit = {}) => {
   if (!apiUrlInitialized && initializationPromise) {

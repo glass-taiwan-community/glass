@@ -232,6 +232,8 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   settingsView: {
+    getSaveAskScreenshots: () => ipcRenderer.invoke('settings:get-save-ask-screenshots'),
+    setSaveAskScreenshots: (enabled) => ipcRenderer.invoke('settings:set-save-ask-screenshots', enabled),
     // User & Auth
     getCurrentUser: () => ipcRenderer.invoke('get-current-user'),
     openPersonalizePage: () => ipcRenderer.invoke('open-personalize-page'),

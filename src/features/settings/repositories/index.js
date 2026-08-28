@@ -64,6 +64,16 @@ const settingsRepositoryAdapter = {
         const uid = authService.getCurrentUserId();
         return getBaseRepository().setVoiceAskEnabled(uid, enabled);
     },
+
+    getSaveAskScreenshots: () => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().getSaveAskScreenshots(uid);
+    },
+
+    setSaveAskScreenshots: (enabled) => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().setSaveAskScreenshots(uid, enabled);
+    },
 };
 
 module.exports = settingsRepositoryAdapter;

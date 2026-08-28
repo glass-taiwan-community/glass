@@ -1,4 +1,4 @@
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, app } = require('electron');
 const { createStreamingLLM } = require('../common/ai/factory');
 // Lazy require helper to avoid circular dependency issues
 const getWindowManager = () => require('../../window/windowManager');
@@ -63,7 +63,19 @@ async function captureScreenshot(options = {}) {
                         timestamp: Date.now(),
                     };
 
-                    return { success: true, base64, width: metadata.width, height: metadata.height };
+                    // Optionally save a human-readable 1280px-wide copy for history. The model
+                    // gets the 384px thumbnail above; this is the copy a person reviews later.
+                    let readablePath = null;
+                    if (options.saveReadableTo) {
+                        try {
+                            await sharp(imageBuffer).resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 80 }).toFile(options.saveReadableTo);
+                            readablePath = options.saveReadableTo;
+                        } catch (e) {
+                            console.warn('[AskService] failed to save readable screenshot:', e.message);
+                        }
+                    }
+
+                    return { success: true, base64, width: metadata.width, height: metadata.height, readablePath };
                 } catch (sharpError) {
                     console.warn('Sharp module failed, falling back to basic image processing:', sharpError.message);
                 }
@@ -150,7 +162,9 @@ class AskService {
         let shouldSendScreenOnly = false;
         if (inputScreenOnly && this.state.showTextInput && askWindow && askWindow.isVisible()) {
             shouldSendScreenOnly = true;
-            await this.sendMessage('', []);
+            // Screen-only ask (Cmd+Enter twice) has no text prompt, so the screenshot is the
+            // only record of what was asked -- flag it to be saved (gated by the setting).
+            await this.sendMessage('', [], { saveScreenshot: true });
             return;
         }
 
@@ -215,7 +229,7 @@ class AskService {
      * @param {string} userPrompt
      * @returns {Promise<{success: boolean, response?: string, error?: string}>}
      */
-    async sendMessage(userPrompt, conversationHistoryRaw=[]) {
+    async sendMessage(userPrompt, conversationHistoryRaw=[], opts={}) {
         internalBridge.emit('window:requestVisibility', { name: 'ask', visible: true });
         this.state = {
             ...this.state,
@@ -240,17 +254,39 @@ class AskService {
             console.log(`[AskService] 🤖 Processing message: ${userPrompt.substring(0, 50)}...`);
 
             sessionId = await sessionRepository.getOrCreateActive('ask');
-            await askRepository.addAiMessage({ sessionId, role: 'user', content: userPrompt.trim() });
-            console.log(`[AskService] DB: Saved user prompt to session ${sessionId}`);
-            
+
+            // Decide whether to persist this capture (screen-only ask + setting on). Set up the
+            // destination up front so captureScreenshot can write the readable copy in one pass.
+            let imagePath = null;
+            let saveReadableTo = null;
+            if (opts.saveScreenshot) {
+                try {
+                    const settingsService = require('../settings/settingsService');
+                    if (await settingsService.getSaveAskScreenshots()) {
+                        const dir = path.join(app.getPath('userData'), 'ask-screenshots');
+                        await fs.promises.mkdir(dir, { recursive: true });
+                        const filename = `${require('crypto').randomUUID()}.jpg`;
+                        saveReadableTo = path.join(dir, filename);
+                        imagePath = filename; // store the filename only, keep it portable
+                    }
+                } catch (e) {
+                    console.error('[AskService] screenshot-save setup failed:', e.message);
+                }
+            }
+
+            const screenshotResult = await captureScreenshot({ quality: 'medium', saveReadableTo });
+            const screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
+            // Only record the path if the file was actually written.
+            if (saveReadableTo && !screenshotResult.readablePath) imagePath = null;
+
+            await askRepository.addAiMessage({ sessionId, role: 'user', content: userPrompt.trim(), imagePath });
+            console.log(`[AskService] DB: Saved user prompt to session ${sessionId}${imagePath ? ' (with screenshot)' : ''}`);
+
             const modelInfo = await modelStateService.getCurrentModelInfo('llm');
             if (!modelInfo || !modelInfo.apiKey) {
                 throw new Error('AI model or API key not configured.');
             }
             console.log(`[AskService] Using model: ${modelInfo.model} for provider: ${modelInfo.provider}`);
-
-            const screenshotResult = await captureScreenshot({ quality: 'medium' });
-            const screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
 
             const conversationHistory = this._formatConversationForPrompt(conversationHistoryRaw);
             // A prompt missing its conversation context is indistinguishable from one that has it
@@ -460,6 +496,52 @@ class AskService {
             errorMessage.includes('invalid') ||
             errorMessage.includes('not supported')
         );
+    }
+
+    /** Absolute path to the saved-screenshots directory. */
+    _screenshotDir() {
+        return path.join(app.getPath('userData'), 'ask-screenshots');
+    }
+
+    /**
+     * Delete the saved screenshots belonging to a session, before its rows are removed.
+     * Best-effort: a missing file or dir is fine.
+     */
+    async deleteScreenshotsForSession(sessionId) {
+        try {
+            const messages = await askRepository.getAllAiMessagesBySessionId(sessionId);
+            const dir = this._screenshotDir();
+            for (const m of messages || []) {
+                if (m && m.image_path) {
+                    await fs.promises.unlink(path.join(dir, path.basename(m.image_path))).catch(() => {});
+                }
+            }
+        } catch (e) {
+            console.error('[AskService] deleteScreenshotsForSession failed:', e.message);
+        }
+    }
+
+    /**
+     * Delete saved screenshots older than the retention window (30 days). Best-effort; runs at
+     * startup so the folder cannot grow without bound.
+     */
+    async cleanupOldScreenshots(maxAgeDays = 30) {
+        try {
+            const dir = this._screenshotDir();
+            const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+            const files = await fs.promises.readdir(dir).catch(() => []);
+            let removed = 0;
+            for (const file of files) {
+                const full = path.join(dir, file);
+                try {
+                    const stat = await fs.promises.stat(full);
+                    if (stat.mtimeMs < cutoff) { await fs.promises.unlink(full); removed++; }
+                } catch { /* skip */ }
+            }
+            if (removed > 0) console.log(`[AskService] cleaned up ${removed} screenshot(s) older than ${maxAgeDays} days`);
+        } catch (e) {
+            console.error('[AskService] cleanupOldScreenshots failed:', e.message);
+        }
     }
 
 }

@@ -11,6 +11,7 @@ import {
   AiMessage,
   getSessionDetails,
   deleteSession,
+  getApiOrigin,
 } from '@/utils/api'
 
 type ConversationItem = (Transcript & { type: 'transcript' }) | (AiMessage & { type: 'ai_message' });
@@ -211,7 +212,20 @@ function SessionDetailsContent() {
                             {askMessages.map((item) => (
                                 <div key={item.id} className={`p-3 rounded-lg ${item.role === 'user' ? 'bg-gray-100' : 'bg-blue-50'}`}>
                                     <p className="font-semibold capitalize text-sm text-gray-600 mb-1">{item.role === 'user' ? 'You' : 'AI'}</p>
-                                    <p className="text-gray-800 whitespace-pre-wrap">{item.content}</p>
+                                    {item.content
+                                        ? <p className="text-gray-800 whitespace-pre-wrap">{item.content}</p>
+                                        : (item as AiMessage).image_path
+                                            ? <p className="text-gray-400 italic text-sm">Screen capture</p>
+                                            : null}
+                                    {(item as AiMessage).image_path && (
+                                        <a href={`${getApiOrigin()}/api/ask-screenshots/${(item as AiMessage).image_path}`} target="_blank" rel="noopener noreferrer">
+                                            <img
+                                                src={`${getApiOrigin()}/api/ask-screenshots/${(item as AiMessage).image_path}`}
+                                                alt="Screen capture at time of question"
+                                                className="mt-2 max-h-48 rounded border border-gray-200 hover:opacity-90 transition-opacity"
+                                            />
+                                        </a>
+                                    )}
                                 </div>
                             ))}
                         </div>
