@@ -146,6 +146,31 @@ async function setSttLanguage(uid, language) {
     }
 }
 
+async function getVoiceAskEnabled(uid) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        return userSnap.exists() ? !!userSnap.data().voice_ask_enabled : false;
+    } catch (error) {
+        console.error('Firebase: Error getting voice_ask_enabled:', error);
+        return false;
+    }
+}
+
+async function setVoiceAskEnabled(uid, enabled) {
+    const userDocRef = doc(getFirestoreInstance(), 'users', uid);
+    try {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+            await updateDoc(userDocRef, { voice_ask_enabled: !!enabled });
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('Firebase: Error setting voice_ask_enabled:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function setAutoUpdate(uid, isEnabled) {
     const userDocRef = doc(getFirestoreInstance(), 'users', uid);
     try {
@@ -173,4 +198,6 @@ module.exports = {
     setAutoUpdate,
     getSttLanguage,
     setSttLanguage,
+    getVoiceAskEnabled,
+    setVoiceAskEnabled,
 }; 

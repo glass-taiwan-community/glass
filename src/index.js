@@ -202,6 +202,12 @@ app.whenReady().then(async () => {
         // Probe the native voice-input hook early and log availability. Guarded internally,
         // so a load failure reports unavailable rather than blocking startup.
         voiceAskService.initialize();
+        // Opt-in: only install the global keyboard hook if the user enabled it.
+        try {
+            if (await settingsService.getVoiceAskEnabled()) voiceAskService.start();
+        } catch (e) {
+            console.error('[index] voice-ask start check failed:', e.message);
+        }
 
         featureBridge.initialize();  // 추가: featureBridge 초기화
         windowBridge.initialize();

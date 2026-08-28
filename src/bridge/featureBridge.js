@@ -20,6 +20,13 @@ module.exports = {
     // Settings Service
     ipcMain.handle('settings:getPresets', async () => await settingsService.getPresets());
     ipcMain.handle('voiceAsk:getAvailability', async () => voiceAskService.getAvailability());
+    ipcMain.handle('voiceAsk:getEnabled', async () => await settingsService.getVoiceAskEnabled());
+    ipcMain.handle('voiceAsk:setEnabled', async (e, enabled) => {
+      const result = await settingsService.setVoiceAskEnabled(enabled);
+      // Reflect the new state on the live hook immediately, no restart required.
+      if (enabled) voiceAskService.start(); else voiceAskService.stop();
+      return result;
+    });
     ipcMain.handle('settings:get-auto-update', async () => await settingsService.getAutoUpdateSetting());
     ipcMain.handle('settings:set-auto-update', async (event, isEnabled) => await settingsService.setAutoUpdateSetting(isEnabled));
     ipcMain.handle('settings:get-stt-language', async () => await settingsService.getSttLanguageSetting());

@@ -114,6 +114,36 @@ function getAutoUpdate(uid) {
     }
 }
 
+function getVoiceAskEnabled(uid) {
+    const db = sqliteClient.getDb();
+    try {
+        const row = db.prepare('SELECT voice_ask_enabled FROM users WHERE uid = ?').get(uid);
+        // Default OFF: the feature installs a global keyboard hook, so it must be opt-in.
+        return row ? row.voice_ask_enabled === 1 : false;
+    } catch (error) {
+        console.error('SQLite: Failed to get voice_ask_enabled:', error);
+        return false;
+    }
+}
+
+function setVoiceAskEnabled(uid, enabled) {
+    const db = sqliteClient.getDb();
+    const targetUid = uid || sqliteClient.defaultUserId;
+    const val = enabled ? 1 : 0;
+    try {
+        const result = db.prepare('UPDATE users SET voice_ask_enabled = ? WHERE uid = ?').run(val, targetUid);
+        if (result.changes === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            db.prepare('INSERT OR REPLACE INTO users (uid, display_name, email, created_at, voice_ask_enabled) VALUES (?, ?, ?, ?, ?)')
+              .run(targetUid, 'User', 'user@example.com', now, val);
+        }
+        return { success: true };
+    } catch (error) {
+        console.error('SQLite: Failed to set voice_ask_enabled:', error);
+        throw error;
+    }
+}
+
 function getSttLanguage(uid) {
     const db = sqliteClient.getDb();
     try {
@@ -172,5 +202,7 @@ module.exports = {
     getAutoUpdate,
     setAutoUpdate,
     getSttLanguage,
-    setSttLanguage
+    setSttLanguage,
+    getVoiceAskEnabled,
+    setVoiceAskEnabled
 };

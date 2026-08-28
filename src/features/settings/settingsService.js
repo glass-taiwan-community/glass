@@ -460,6 +460,25 @@ async function setSttLanguageSetting(language) {
     }
 }
 
+async function getVoiceAskEnabled() {
+    try {
+        return await settingsRepository.getVoiceAskEnabled();
+    } catch (error) {
+        console.error('[SettingsService] Error getting voice-ask enabled:', error);
+        return false;
+    }
+}
+
+async function setVoiceAskEnabled(enabled) {
+    try {
+        await settingsRepository.setVoiceAskEnabled(enabled);
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting voice-ask enabled:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 function initialize() {
     // cleanup 
     windowNotificationManager.cleanup();
@@ -497,6 +516,8 @@ module.exports = {
     getAutoUpdateSetting,
     setAutoUpdateSetting,
     getSttLanguageSetting,
+    getVoiceAskEnabled,
+    setVoiceAskEnabled,
     setSttLanguageSetting,
     SUPPORTED_STT_LANGUAGES,
     // Model settings facade
