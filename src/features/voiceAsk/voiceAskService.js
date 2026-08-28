@@ -141,19 +141,83 @@ function stop() {
 }
 
 /**
- * Receive a recorded clip from the renderer. STEP 3a: log its size/duration to prove capture
- * works end to end. STEP 3b will feed it to an ephemeral STT session and send the transcript
- * (plus screenshot) to Ask.
+ * Transcribe raw linear16 PCM via Deepgram's prerecorded endpoint. A true one-shot: POST the
+ * audio, get the final transcript back -- no streaming session to manage. The real sample rate
+ * (reported by the renderer) is passed through, so audio the browser captured at hardware rate
+ * is interpreted correctly instead of being mislabeled 24 kHz.
+ * @returns {Promise<string>} the transcript, or '' if empty
+ */
+async function transcribeDeepgram(rawBuffer, sampleRate, apiKey, model, language) {
+    const params = new URLSearchParams({
+        model: model || 'nova-3',
+        encoding: 'linear16',
+        sample_rate: String(Math.round(sampleRate || 24000)),
+        channels: '1',
+        smart_format: 'true',
+    });
+    if (language) params.set('language', language);
+    const res = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+        method: 'POST',
+        headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/octet-stream' },
+        body: rawBuffer,
+    });
+    if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`Deepgram ${res.status}: ${detail.slice(0, 200)}`);
+    }
+    const json = await res.json();
+    return json?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || '';
+}
+
+/**
+ * Receive a recorded clip from the renderer, transcribe it (one-shot), and send the transcript
+ * plus the usual screenshot to Ask -- without any Glass window taking focus.
  * @param {{chunks: string[], sampleRate: number, durationMs: number}} payload
  */
 async function handleAudioClip(payload) {
     try {
         const chunks = (payload && payload.chunks) || [];
-        const bytes = chunks.reduce((n, b64) => n + Math.floor((b64.length * 3) / 4), 0);
-        const durationMs = payload && payload.durationMs;
-        console.log(`[VoiceAsk] received audio clip: ${chunks.length} chunk(s), ~${bytes} bytes, ${durationMs}ms @ ${payload && payload.sampleRate}Hz`);
-        // STEP 3b: transcribe + askService.sendMessage(transcript).
-        return { success: true, bytes, chunks: chunks.length };
+        const sampleRate = (payload && payload.sampleRate) || 24000;
+        if (chunks.length === 0) return { success: false, error: 'empty clip' };
+
+        const rawBuffer = Buffer.concat(chunks.map(b64 => Buffer.from(b64, 'base64')));
+        console.log(`[VoiceAsk] transcribing ${rawBuffer.length} bytes @ ${Math.round(sampleRate)}Hz...`);
+
+        const modelStateService = require('../common/services/modelStateService');
+        const modelInfo = await modelStateService.getCurrentModelInfo('stt');
+        if (!modelInfo || !modelInfo.apiKey) {
+            console.warn('[VoiceAsk] no STT provider configured -- cannot transcribe');
+            return { success: false, error: 'no STT provider configured' };
+        }
+
+        // Resolve the neutral language ('en'|'zh') to the provider's expected code.
+        let language;
+        try {
+            const settingsService = require('../settings/settingsService');
+            const { resolveSttLanguage } = require('../common/ai/sttLanguages');
+            language = resolveSttLanguage(await settingsService.getSttLanguageSetting(), modelInfo.provider) || undefined;
+        } catch { language = undefined; }
+
+        let transcript = '';
+        if (modelInfo.provider === 'deepgram') {
+            transcript = await transcribeDeepgram(rawBuffer, sampleRate, modelInfo.apiKey, modelInfo.model, language);
+        } else {
+            // Other providers are wired as streaming sessions; a one-shot batch path for each
+            // is a follow-up. Fail loudly rather than silently doing nothing.
+            console.warn(`[VoiceAsk] provider '${modelInfo.provider}' not yet supported for voice-ask (use Deepgram STT)`);
+            return { success: false, error: `provider ${modelInfo.provider} not supported for voice input yet` };
+        }
+
+        if (!transcript) {
+            console.log('[VoiceAsk] transcript empty -- nothing said, not sending to Ask');
+            return { success: true, transcript: '' };
+        }
+
+        console.log(`[VoiceAsk] transcript: "${transcript}" -- sending to Ask`);
+        const askService = require('../ask/askService');
+        // sendMessage attaches the screenshot automatically; [] = no prior conversation context.
+        await askService.sendMessage(transcript, []);
+        return { success: true, transcript };
     } catch (err) {
         console.error('[VoiceAsk] handleAudioClip error:', err.message);
         return { success: false, error: err.message };

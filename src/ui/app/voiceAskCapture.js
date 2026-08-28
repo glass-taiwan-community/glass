@@ -83,13 +83,16 @@ class VoiceAskCapture {
         this.onStateChange(false);
         const durationMs = Date.now() - this._startedAt;
         const chunks = this._chunks;
+        // The browser may ignore the requested rate and run at hardware rate (44.1/48k).
+        // Report the ACTUAL rate so the transcriber is told the truth, not the request.
+        const actualSampleRate = this._context ? this._context.sampleRate : VOICE_SAMPLE_RATE;
         this._chunks = [];
         this._teardown();
         try {
             if (window.api && window.api.voiceAsk && chunks.length > 0) {
                 await window.api.voiceAsk.submitAudioClip({
                     chunks,
-                    sampleRate: VOICE_SAMPLE_RATE,
+                    sampleRate: actualSampleRate,
                     durationMs,
                 });
             }
