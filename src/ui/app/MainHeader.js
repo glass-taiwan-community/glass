@@ -1,13 +1,36 @@
 import { html, css, LitElement } from '../assets/lit-core-2.7.4.min.js';
+import { VoiceAskCapture } from './voiceAskCapture.js';
 
 export class MainHeader extends LitElement {
     static properties = {
         isTogglingSession: { type: Boolean, state: true },
         shortcuts: { type: Object, state: true },
         listenSessionStatus: { type: String, state: true },
+        voiceAskRecording: { type: Boolean, state: true },
     };
 
     static styles = css`
+        .voice-rec {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 6px;
+            padding: 2px 7px;
+            border-radius: 8px;
+            background: rgba(224, 90, 90, 0.22);
+            color: #ff8f8f;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .voice-rec .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #ff5a5a;
+            animation: voiceRecPulse 1s ease-in-out infinite;
+        }
+        @keyframes voiceRecPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
         :host {
             display: flex;
             transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.2s ease-out;
@@ -499,6 +522,26 @@ export class MainHeader extends LitElement {
                 this.shortcuts = keybinds;
             };
             window.api.mainHeader.onShortcutsUpdated(this._shortcutListener);
+
+            // Voice-to-Ask: main detects the global key hold and toggles recording state.
+            // Record the mic only while a hold is in progress, and show an indicator.
+            this._voiceCapture = new VoiceAskCapture((recording) => { this.voiceAskRecording = recording; });
+            this._voiceRecordingListener = (event, { recording }) => {
+                if (recording) this._voiceCapture.startHold();
+                else this._voiceCapture.stopHold();
+            };
+            window.api.voiceAsk?.onRecordingStateChanged(this._voiceRecordingListener);
+
+            // Keep the mic warm whenever the feature is enabled, so the first word of every
+            // hold is captured instead of lost to mic startup latency.
+            this._voiceEnabledListener = (event, { enabled }) => {
+                if (enabled) this._voiceCapture.arm();
+                else this._voiceCapture.disarm();
+            };
+            window.api.voiceAsk?.onEnabledChanged(this._voiceEnabledListener);
+            window.api.voiceAsk?.getEnabled().then((enabled) => {
+                if (enabled) this._voiceCapture.arm();
+            }).catch(() => {});
         }
     }
 
@@ -521,6 +564,13 @@ export class MainHeader extends LitElement {
             if (this._toggleListenSessionListener) {
                 window.api.mainHeader.removeOnToggleListenSession(this._toggleListenSessionListener);
             }
+            if (this._voiceRecordingListener) {
+                window.api.voiceAsk?.removeOnRecordingStateChanged(this._voiceRecordingListener);
+            }
+            if (this._voiceEnabledListener) {
+                window.api.voiceAsk?.removeOnEnabledChanged(this._voiceEnabledListener);
+            }
+            if (this._voiceCapture) this._voiceCapture.disarm();
         }
     }
 
@@ -619,6 +669,10 @@ export class MainHeader extends LitElement {
 
         return html`
             <div class="header" @mousedown=${this.handleMouseDown}>
+                ${this.voiceAskRecording ? html`
+                    <div class="voice-rec" title="Listening -- release Right-Command to send">
+                        <span class="dot"></span>Listening
+                    </div>` : ''}
                 <button 
                     class="listen-button ${Object.keys(buttonClasses).filter(k => buttonClasses[k]).join(' ')}"
                     @click=${this._handleListenClick}

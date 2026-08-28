@@ -1,6 +1,7 @@
 // src/bridge/featureBridge.js
 const { ipcMain, app, BrowserWindow } = require('electron');
 const settingsService = require('../features/settings/settingsService');
+const voiceAskService = require('../features/voiceAsk/voiceAskService');
 const authService = require('../features/common/services/authService');
 const whisperService = require('../features/common/services/whisperService');
 const ollamaService = require('../features/common/services/ollamaService');
@@ -18,6 +19,21 @@ module.exports = {
   initialize() {
     // Settings Service
     ipcMain.handle('settings:getPresets', async () => await settingsService.getPresets());
+    ipcMain.handle('voiceAsk:getAvailability', async () => voiceAskService.getAvailability());
+    ipcMain.handle('voiceAsk:getEnabled', async () => await settingsService.getVoiceAskEnabled());
+    ipcMain.handle('voiceAsk:setEnabled', async (e, enabled) => {
+      const result = await settingsService.setVoiceAskEnabled(enabled);
+      // Reflect the new state on the live hook immediately, no restart required.
+      if (enabled) voiceAskService.start(); else voiceAskService.stop();
+      // Tell the header to arm/disarm the warm mic to match.
+      try {
+        const { windowPool } = require('../window/windowManager');
+        const header = windowPool && windowPool.get('header');
+        if (header && !header.isDestroyed()) header.webContents.send('voiceAsk:enabledChanged', { enabled });
+      } catch (err) { console.error('[featureBridge] voiceAsk enabledChanged notify failed:', err.message); }
+      return result;
+    });
+    ipcMain.handle('voiceAsk:submitAudioClip', async (e, payload) => await voiceAskService.handleAudioClip(payload));
     ipcMain.handle('settings:get-auto-update', async () => await settingsService.getAutoUpdateSetting());
     ipcMain.handle('settings:set-auto-update', async (event, isEnabled) => await settingsService.setAutoUpdateSetting(isEnabled));
     ipcMain.handle('settings:get-stt-language', async () => await settingsService.getSttLanguageSetting());

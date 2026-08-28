@@ -36,6 +36,7 @@ asarUnpack:
     - "src/ui/assets/SystemAudioDump"
     - "**/node_modules/sharp/**/*"
     - "**/node_modules/@img/**/*"
+    - "**/node_modules/uiohook-napi/**/*"
 
 # Windows configuration
 win:

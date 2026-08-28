@@ -54,6 +54,16 @@ const settingsRepositoryAdapter = {
         const uid = authService.getCurrentUserId();
         return getBaseRepository().setSttLanguage(uid, language);
     },
+
+    getVoiceAskEnabled: () => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().getVoiceAskEnabled(uid);
+    },
+
+    setVoiceAskEnabled: (enabled) => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().setVoiceAskEnabled(uid, enabled);
+    },
 };
 
 module.exports = settingsRepositoryAdapter;

@@ -508,6 +508,9 @@ export class SettingsView extends LitElement {
         installingModels: { type: Object, state: true },
         // Whisper related properties
         whisperModels: { type: Array, state: true },
+        // Voice-to-Ask native hook availability + enabled state
+        voiceAskAvailability: { type: Object, state: true },
+        voiceAskEnabled: { type: Boolean, state: true },
     };
     //////// after_modelStateService ////////
 
@@ -515,6 +518,8 @@ export class SettingsView extends LitElement {
         super();
         //////// after_modelStateService ////////
         this.shortcuts = {};
+        this.voiceAskAvailability = null;
+        this.voiceAskEnabled = false;
         this.firebaseUser = null;
         this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '' };
         this.baseUrls = {};
@@ -651,13 +656,17 @@ export class SettingsView extends LitElement {
         this.isLoading = true;
         try {
             // Load essential data first
-            const [userState, modelSettings, presets, contentProtection, shortcuts] = await Promise.all([
+            const [userState, modelSettings, presets, contentProtection, shortcuts, voiceAskAvailability] = await Promise.all([
                 window.api.settingsView.getCurrentUser(),
                 window.api.settingsView.getModelSettings(), // Facade call
                 window.api.settingsView.getPresets(),
                 window.api.settingsView.getContentProtectionStatus(),
-                window.api.settingsView.getCurrentShortcuts()
+                window.api.settingsView.getCurrentShortcuts(),
+                window.api.voiceAsk ? window.api.voiceAsk.getAvailability() : Promise.resolve(null)
             ]);
+            if (window.api.voiceAsk) {
+                try { this.voiceAskEnabled = await window.api.voiceAsk.getEnabled(); } catch { this.voiceAskEnabled = false; }
+            }
             
             if (userState && userState.isLoggedIn) this.firebaseUser = userState;
             
@@ -675,6 +684,7 @@ export class SettingsView extends LitElement {
             this.presets = presets || [];
             this.isContentProtectionOn = contentProtection;
             this.shortcuts = shortcuts || {};
+            this.voiceAskAvailability = voiceAskAvailability;
             if (this.presets.length > 0) {
                 const firstUserPreset = this.presets.find(p => p.is_default === 0);
                 if (firstUserPreset) this.selectedPreset = firstUserPreset;
@@ -1175,6 +1185,18 @@ export class SettingsView extends LitElement {
         }
     }
 
+    async handleToggleVoiceAsk() {
+        if (!this.voiceAskAvailability || !this.voiceAskAvailability.available) return;
+        const next = !this.voiceAskEnabled;
+        try {
+            const result = await window.api.voiceAsk.setEnabled(next);
+            if (result && result.success !== false) this.voiceAskEnabled = next;
+        } catch (e) {
+            console.error('[SettingsView] voice-ask toggle failed:', e);
+        }
+        this.requestUpdate();
+    }
+
     async handleToggleInvisibility() {
         console.log('Toggle Invisibility clicked');
         this.isContentProtectionOn = await window.api.settingsView.toggleContentProtection();
@@ -1455,6 +1477,24 @@ export class SettingsView extends LitElement {
                         </div>
                     `)}
                 </div>
+
+                ${this.voiceAskAvailability ? html`
+                    <div class="shortcut-item">
+                        <span class="shortcut-name">Voice input (hold Right-⌘)</span>
+                        <div class="shortcut-keys">
+                            ${this.voiceAskAvailability.available
+                                ? html`<span
+                                        @click=${this.handleToggleVoiceAsk}
+                                        title="Hold Right-Command to record a question and send it to Ask"
+                                        style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
+                                               background:${this.voiceAskEnabled ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
+                                               color:${this.voiceAskEnabled ? '#6fdd8b' : '#bbb'}">
+                                        ${this.voiceAskEnabled ? 'On' : 'Off'}
+                                       </span>`
+                                : html`<span style="font-size:11px;color:#e0857b">unavailable (native module failed to load)</span>`}
+                        </div>
+                    </div>
+                ` : ''}
 
                 <div class="preset-section">
                     <div class="preset-header">

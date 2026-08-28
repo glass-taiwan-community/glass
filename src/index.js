@@ -24,6 +24,7 @@ const { autoUpdater } = require('electron-updater');
 const { EventEmitter } = require('events');
 const askService = require('./features/ask/askService');
 const settingsService = require('./features/settings/settingsService');
+const voiceAskService = require('./features/voiceAsk/voiceAskService');
 const sessionRepository = require('./features/common/repositories/session');
 const modelStateService = require('./features/common/services/modelStateService');
 const featureBridge = require('./bridge/featureBridge');
@@ -197,6 +198,16 @@ app.whenReady().then(async () => {
         //////// after_modelStateService ////////
         await modelStateService.initialize();
         //////// after_modelStateService ////////
+
+        // Probe the native voice-input hook early and log availability. Guarded internally,
+        // so a load failure reports unavailable rather than blocking startup.
+        voiceAskService.initialize();
+        // Opt-in: only install the global keyboard hook if the user enabled it.
+        try {
+            if (await settingsService.getVoiceAskEnabled()) voiceAskService.start();
+        } catch (e) {
+            console.error('[index] voice-ask start check failed:', e.message);
+        }
 
         featureBridge.initialize();  // 추가: featureBridge 초기화
         windowBridge.initialize();

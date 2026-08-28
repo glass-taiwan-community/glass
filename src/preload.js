@@ -220,6 +220,17 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // src/ui/settings/SettingsView.js
+  voiceAsk: {
+    getAvailability: () => ipcRenderer.invoke('voiceAsk:getAvailability'),
+    getEnabled: () => ipcRenderer.invoke('voiceAsk:getEnabled'),
+    setEnabled: (enabled) => ipcRenderer.invoke('voiceAsk:setEnabled', enabled),
+    onRecordingStateChanged: (callback) => ipcRenderer.on('voiceAsk:recordingStateChanged', callback),
+    removeOnRecordingStateChanged: (callback) => ipcRenderer.removeListener('voiceAsk:recordingStateChanged', callback),
+    onEnabledChanged: (callback) => ipcRenderer.on('voiceAsk:enabledChanged', callback),
+    removeOnEnabledChanged: (callback) => ipcRenderer.removeListener('voiceAsk:enabledChanged', callback),
+    submitAudioClip: (payload) => ipcRenderer.invoke('voiceAsk:submitAudioClip', payload),
+  },
+
   settingsView: {
     // User & Auth
     getCurrentUser: () => ipcRenderer.invoke('get-current-user'),
