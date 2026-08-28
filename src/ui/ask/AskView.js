@@ -732,6 +732,11 @@ export class AskView extends LitElement {
         this.smdContainer = null;
         this.lastProcessedLength = 0;
 
+        // Auto-follow the stream only while the reader is at the bottom. The moment they
+        // scroll up to read, stop yanking them down; resume if they return to the bottom.
+        this._followStream = true;
+        this._scrollListenerAttached = false;
+
         this.handleSendText = this.handleSendText.bind(this);
         this.handleTextKeydown = this.handleTextKeydown.bind(this);
         this.handleCopy = this.handleCopy.bind(this);
@@ -998,9 +1003,23 @@ export class AskView extends LitElement {
     }
 
 
+    // The reader "controls" scrolling once they move away from the bottom. A programmatic
+    // scroll-to-bottom lands within the threshold and keeps follow on; scrolling up turns it
+    // off; scrolling back to the bottom turns it back on.
+    _attachScrollListener(container) {
+        if (this._scrollListenerAttached || !container) return;
+        this._scrollListenerAttached = true;
+        const AT_BOTTOM_PX = 40; // slack so rounding / a partial line still counts as "bottom"
+        container.addEventListener('scroll', () => {
+            const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+            this._followStream = distanceFromBottom <= AT_BOTTOM_PX;
+        }, { passive: true });
+    }
+
     renderContent() {
         const responseContainer = this.shadowRoot.getElementById('responseContainer');
         if (!responseContainer) return;
+        this._attachScrollListener(responseContainer);
     
         // Check loading state
         if (this.isLoading) {
@@ -1040,6 +1059,8 @@ export class AskView extends LitElement {
             if (!this.smdParser || this.smdContainer !== responseContainer) {
                 this.smdContainer = responseContainer;
                 this.smdContainer.innerHTML = '';
+                // A new answer is starting -- follow it from the top again.
+                this._followStream = true;
                 
                 // smd.js의 default_renderer 사용
                 const renderer = default_renderer(this.smdContainer);
@@ -1072,8 +1093,10 @@ export class AskView extends LitElement {
                 });
             }
 
-            // 스크롤을 맨 아래로
-            responseContainer.scrollTop = responseContainer.scrollHeight;
+            // Follow the stream only if the reader hasn't scrolled up to read something.
+            if (this._followStream) {
+                responseContainer.scrollTop = responseContainer.scrollHeight;
+            }
             
         } catch (error) {
             console.error('Error rendering streaming markdown:', error);
