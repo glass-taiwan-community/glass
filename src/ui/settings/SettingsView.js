@@ -508,6 +508,8 @@ export class SettingsView extends LitElement {
         installingModels: { type: Object, state: true },
         // Whisper related properties
         whisperModels: { type: Array, state: true },
+        // Voice-to-Ask native hook availability
+        voiceAskAvailability: { type: Object, state: true },
     };
     //////// after_modelStateService ////////
 
@@ -515,6 +517,7 @@ export class SettingsView extends LitElement {
         super();
         //////// after_modelStateService ////////
         this.shortcuts = {};
+        this.voiceAskAvailability = null;
         this.firebaseUser = null;
         this.apiKeys = { openai: '', gemini: '', anthropic: '', whisper: '' };
         this.baseUrls = {};
@@ -651,12 +654,13 @@ export class SettingsView extends LitElement {
         this.isLoading = true;
         try {
             // Load essential data first
-            const [userState, modelSettings, presets, contentProtection, shortcuts] = await Promise.all([
+            const [userState, modelSettings, presets, contentProtection, shortcuts, voiceAskAvailability] = await Promise.all([
                 window.api.settingsView.getCurrentUser(),
                 window.api.settingsView.getModelSettings(), // Facade call
                 window.api.settingsView.getPresets(),
                 window.api.settingsView.getContentProtectionStatus(),
-                window.api.settingsView.getCurrentShortcuts()
+                window.api.settingsView.getCurrentShortcuts(),
+                window.api.voiceAsk ? window.api.voiceAsk.getAvailability() : Promise.resolve(null)
             ]);
             
             if (userState && userState.isLoggedIn) this.firebaseUser = userState;
@@ -675,6 +679,7 @@ export class SettingsView extends LitElement {
             this.presets = presets || [];
             this.isContentProtectionOn = contentProtection;
             this.shortcuts = shortcuts || {};
+            this.voiceAskAvailability = voiceAskAvailability;
             if (this.presets.length > 0) {
                 const firstUserPreset = this.presets.find(p => p.is_default === 0);
                 if (firstUserPreset) this.selectedPreset = firstUserPreset;
@@ -1455,6 +1460,19 @@ export class SettingsView extends LitElement {
                         </div>
                     `)}
                 </div>
+
+                ${this.voiceAskAvailability ? html`
+                    <div class="shortcut-item">
+                        <span class="shortcut-name">Voice input</span>
+                        <div class="shortcut-keys">
+                            <span style="font-size:11px;color:${this.voiceAskAvailability.available ? '#6fdd8b' : '#e0857b'}">
+                                ${this.voiceAskAvailability.available
+                                    ? `available${this.voiceAskAvailability.version ? ' (v' + this.voiceAskAvailability.version + ')' : ''}`
+                                    : 'unavailable (native module failed to load)'}
+                            </span>
+                        </div>
+                    </div>
+                ` : ''}
 
                 <div class="preset-section">
                     <div class="preset-header">

@@ -220,6 +220,10 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // src/ui/settings/SettingsView.js
+  voiceAsk: {
+    getAvailability: () => ipcRenderer.invoke('voiceAsk:getAvailability'),
+  },
+
   settingsView: {
     // User & Auth
     getCurrentUser: () => ipcRenderer.invoke('get-current-user'),
