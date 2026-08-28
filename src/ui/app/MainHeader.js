@@ -527,10 +527,21 @@ export class MainHeader extends LitElement {
             // Record the mic only while a hold is in progress, and show an indicator.
             this._voiceCapture = new VoiceAskCapture((recording) => { this.voiceAskRecording = recording; });
             this._voiceRecordingListener = (event, { recording }) => {
-                if (recording) this._voiceCapture.start();
-                else this._voiceCapture.stop();
+                if (recording) this._voiceCapture.startHold();
+                else this._voiceCapture.stopHold();
             };
             window.api.voiceAsk?.onRecordingStateChanged(this._voiceRecordingListener);
+
+            // Keep the mic warm whenever the feature is enabled, so the first word of every
+            // hold is captured instead of lost to mic startup latency.
+            this._voiceEnabledListener = (event, { enabled }) => {
+                if (enabled) this._voiceCapture.arm();
+                else this._voiceCapture.disarm();
+            };
+            window.api.voiceAsk?.onEnabledChanged(this._voiceEnabledListener);
+            window.api.voiceAsk?.getEnabled().then((enabled) => {
+                if (enabled) this._voiceCapture.arm();
+            }).catch(() => {});
         }
     }
 
@@ -556,7 +567,10 @@ export class MainHeader extends LitElement {
             if (this._voiceRecordingListener) {
                 window.api.voiceAsk?.removeOnRecordingStateChanged(this._voiceRecordingListener);
             }
-            if (this._voiceCapture) this._voiceCapture.stop();
+            if (this._voiceEnabledListener) {
+                window.api.voiceAsk?.removeOnEnabledChanged(this._voiceEnabledListener);
+            }
+            if (this._voiceCapture) this._voiceCapture.disarm();
         }
     }
 

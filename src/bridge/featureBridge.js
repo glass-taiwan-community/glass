@@ -25,6 +25,12 @@ module.exports = {
       const result = await settingsService.setVoiceAskEnabled(enabled);
       // Reflect the new state on the live hook immediately, no restart required.
       if (enabled) voiceAskService.start(); else voiceAskService.stop();
+      // Tell the header to arm/disarm the warm mic to match.
+      try {
+        const { windowPool } = require('../window/windowManager');
+        const header = windowPool && windowPool.get('header');
+        if (header && !header.isDestroyed()) header.webContents.send('voiceAsk:enabledChanged', { enabled });
+      } catch (err) { console.error('[featureBridge] voiceAsk enabledChanged notify failed:', err.message); }
       return result;
     });
     ipcMain.handle('voiceAsk:submitAudioClip', async (e, payload) => await voiceAskService.handleAudioClip(payload));
