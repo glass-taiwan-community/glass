@@ -498,6 +498,52 @@ class AskService {
         );
     }
 
+    /** Absolute path to the saved-screenshots directory. */
+    _screenshotDir() {
+        return path.join(app.getPath('userData'), 'ask-screenshots');
+    }
+
+    /**
+     * Delete the saved screenshots belonging to a session, before its rows are removed.
+     * Best-effort: a missing file or dir is fine.
+     */
+    async deleteScreenshotsForSession(sessionId) {
+        try {
+            const messages = await askRepository.getAllAiMessagesBySessionId(sessionId);
+            const dir = this._screenshotDir();
+            for (const m of messages || []) {
+                if (m && m.image_path) {
+                    await fs.promises.unlink(path.join(dir, path.basename(m.image_path))).catch(() => {});
+                }
+            }
+        } catch (e) {
+            console.error('[AskService] deleteScreenshotsForSession failed:', e.message);
+        }
+    }
+
+    /**
+     * Delete saved screenshots older than the retention window (30 days). Best-effort; runs at
+     * startup so the folder cannot grow without bound.
+     */
+    async cleanupOldScreenshots(maxAgeDays = 30) {
+        try {
+            const dir = this._screenshotDir();
+            const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+            const files = await fs.promises.readdir(dir).catch(() => []);
+            let removed = 0;
+            for (const file of files) {
+                const full = path.join(dir, file);
+                try {
+                    const stat = await fs.promises.stat(full);
+                    if (stat.mtimeMs < cutoff) { await fs.promises.unlink(full); removed++; }
+                } catch { /* skip */ }
+            }
+            if (removed > 0) console.log(`[AskService] cleaned up ${removed} screenshot(s) older than ${maxAgeDays} days`);
+        } catch (e) {
+            console.error('[AskService] cleanupOldScreenshots failed:', e.message);
+        }
+    }
+
 }
 
 const askService = new AskService();
