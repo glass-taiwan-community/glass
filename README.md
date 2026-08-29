@@ -9,7 +9,7 @@
 
 
 <p align="center">
-  <a href="https://discord.gg/UCZH5B5Hpd"><img src="./public/assets/button_dc.png" width="80" alt="Pickle Discord"></a>&ensp;<a href="https://pickle.com"><img src="./public/assets/button_we.png" width="105" alt="Pickle Website"></a>&ensp;<a href="https://x.com/intent/user?screen_name=leinadpark"><img src="./public/assets/button_xe.png" width="109" alt="Follow Daniel"></a>
+  <a href="https://discord.gg/UCZH5B5Hpd"><img src="./public/assets/button_dc.png" width="80" alt="Discord"></a>&ensp;<a href="https://github.com/glass-taiwan-community/glass"><img src="./public/assets/button_we.png" width="105" alt="GitHub"></a>
 </p>
 
 > **Taiwan Community Fork**: This repository is maintained by the Glass Taiwan Community at [glass-taiwan-community](https://github.com/glass-taiwan-community).
@@ -128,10 +128,6 @@ This fork adds full keyboard control of the overlay (macOS), so you can drive Gl
 - `Cmd + Alt + Enter` — ask about the selected insight
 - `Cmd + Alt + T` — switch between insights and transcript
 
-## Repo Activity
-
-![Alt](https://repobeats.axiom.co/api/embed/a23e342faafa84fa8797fa57762885d82fac1180.svg "Repobeats analytics image")
-
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](/CONTRIBUTING.md), then open an issue or pull request.
@@ -141,4 +137,4 @@ Contributions are welcome — see [CONTRIBUTING.md](/CONTRIBUTING.md), then open
 **Our mission is to build a living digital clone for everyone.** Glass is part of Step 1—a trusted pipeline that transforms your daily data into a scalable clone. Visit [pickle.com](https://pickle.com) to learn more.
 
 ## Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=pickle-com/glass&type=Date)](https://www.star-history.com/#pickle-com/glass&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=glass-taiwan-community/glass&type=Date)](https://www.star-history.com/#glass-taiwan-community/glass&Date)
