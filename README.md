@@ -111,6 +111,3 @@ This fork adds full keyboard control of the overlay (macOS), so you can drive Gl
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](/CONTRIBUTING.md), then open an issue or pull request.
-
-## Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=glass-taiwan-community/glass&type=Date)](https://www.star-history.com/#glass-taiwan-community/glass&Date)
