@@ -7,7 +7,7 @@
 
 
 <p align="center">
-  <a href="https://discord.gg/UCZH5B5Hpd"><img src="./public/assets/button_dc.png" width="80" alt="Discord"></a>&ensp;<a href="https://github.com/glass-taiwan-community/glass"><img src="./public/assets/button_we.png" width="105" alt="GitHub"></a>
+  <a href="https://github.com/glass-taiwan-community/glass"><img src="./public/assets/button_we.png" width="105" alt="GitHub"></a>
 </p>
 
 > **Taiwan Community Fork**: This repository is maintained by the Glass Taiwan Community at [glass-taiwan-community](https://github.com/glass-taiwan-community).
@@ -40,8 +40,6 @@ Beyond upstream, this fork adds (macOS):
 💬 **Proactive in meetings**—it surfaces action items, summaries, and answers the instant you need them.
 
 🫥️ **Truly invisible**—never shows up in screen recordings, screenshots, or your dock; no always-on capture or hidden sharing.
-
-To have fun building with us, join our [Discord](https://discord.gg/UCZH5B5Hpd)!
 
 ## Quick Start (Local Build)
 
