@@ -26,6 +26,17 @@ The primary goal of this fork is to lower the contribution barrier, coordinate c
 
 This fork does not claim to replace the upstream project and remains open to contributors from any region.
 
+## Community Fork Additions
+
+Beyond upstream, this fork adds (macOS):
+
+- **Keyboard-driven overlay** — operate Glass entirely from the keyboard so it never steals focus from your foreground app (see Keyboard Shortcuts).
+- **Voice-to-Ask** — hold a key, speak a question, and Ask answers with your live Listen conversation as context, without switching apps. Opt-in, off by default.
+- **STT language selection** — choose transcription language (English / 繁體中文).
+- **Whole-session summary** — a final summary generated when a Listen session ends.
+- **Saved screen captures** — optionally keep the screenshot from a screen-only Ask in your activity history for later review. Opt-in, off by default, 30-day cleanup.
+- **Readable streaming** — the Ask window no longer yanks you to the bottom while a long answer streams; it follows only while you're at the bottom.
+
 ---
 
 🤖 **Fast, light & open-source**—Glass lives on your desktop, sees what you see, listens in real time, understands your context, and turns every moment into structured knowledge.
@@ -99,11 +110,24 @@ npm run setup
 
 ## Keyboard Shortcuts
 
-`Ctrl/Cmd + \` : show and hide main window
+This fork adds full keyboard control of the overlay (macOS), so you can drive Glass without clicking — which would pull focus away from the app you're working in. Every shortcut below is rebindable in Settings.
 
-`Ctrl/Cmd + Enter` : ask AI using all your previous screen and audio
+**Window**
+- `Cmd + \` — show / hide the overlay
+- `Cmd + Arrows` — nudge the window (80px)
+- `Cmd + Shift + Alt + Arrows` — snap the window to a screen edge
 
-`Ctrl/Cmd + Arrows` : move main window position
+**Ask**
+- `Cmd + Enter` — open Ask; press again on an empty box to analyze your screen
+- `Cmd + Shift + Up/Down` — scroll the Ask response
+- `Cmd + Alt + \` — close the Ask window
+- **Hold Right-⌘** — speak a question; the transcript + screenshot go to Ask (opt-in; enable "Voice input" in Settings)
+
+**Listen**
+- `Cmd + Alt + L` — start / stop / dismiss a Listen session
+- `Cmd + Alt + Up/Down` — move the insight selection (or scroll the transcript)
+- `Cmd + Alt + Enter` — ask about the selected insight
+- `Cmd + Alt + T` — switch between insights and transcript
 
 ## Repo Activity
 
