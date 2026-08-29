@@ -45,10 +45,6 @@ Beyond upstream, this fork adds (macOS):
 
 To have fun building with us, join our [Discord](https://discord.gg/UCZH5B5Hpd)!
 
-## Instant Launch
-
-⚡️  Skip the setup—launch instantly with our ready-to-run macOS app.  [[Download Here]](https://www.dropbox.com/scl/fi/znid09apxiwtwvxer6oc9/Glass_latest.dmg?rlkey=gwvvyb3bizkl25frhs4k1zwds&st=37q31b4w&dl=1)
-
 ## Quick Start (Local Build)
 
 ### Prerequisites
@@ -95,18 +91,6 @@ npm run setup
 - Deepgram API (speech-to-text): Get Deepgram API Key [here](https://console.deepgram.com/)
 - Local LLM Ollama & Whisper
 
-### Liquid Glass Design (coming soon)
-
-<img width="100%" alt="booking-screen" src="./public/assets/03.gif">
-
-<p>
-  for a more detailed guide, please refer to this <a href="https://www.youtube.com/watch?v=qHg3_4bU1Dw">video.</a>
-  <i style="color:gray; font-weight:300;">
-    we don't waste money on fancy vids; we just code.
-  </i>
-</p>
-
-
 ## Keyboard Shortcuts
 
 This fork adds full keyboard control of the overlay (macOS), so you can drive Glass without clicking — which would pull focus away from the app you're working in. Every shortcut below is rebindable in Settings.
@@ -131,10 +115,6 @@ This fork adds full keyboard control of the overlay (macOS), so you can drive Gl
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](/CONTRIBUTING.md), then open an issue or pull request.
-
-## About Pickle
-
-**Our mission is to build a living digital clone for everyone.** Glass is part of Step 1—a trusted pipeline that transforms your daily data into a scalable clone. Visit [pickle.com](https://pickle.com) to learn more.
 
 ## Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=glass-taiwan-community/glass&type=Date)](https://www.star-history.com/#glass-taiwan-community/glass&Date)
