@@ -92,6 +92,7 @@ npm run setup
 **Currently Supporting:**
 - OpenAI API: Get OpenAI API Key [here](https://platform.openai.com/api-keys)
 - Gemini API: Get Gemini API Key [here](https://aistudio.google.com/apikey)
+- Deepgram API (speech-to-text): Get Deepgram API Key [here](https://console.deepgram.com/)
 - Local LLM Ollama & Whisper
 
 ### Liquid Glass Design (coming soon)
