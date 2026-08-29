@@ -132,6 +132,10 @@ This fork adds full keyboard control of the overlay (macOS), so you can drive Gl
 
 ![Alt](https://repobeats.axiom.co/api/embed/a23e342faafa84fa8797fa57762885d82fac1180.svg "Repobeats analytics image")
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](/CONTRIBUTING.md), then open an issue or pull request.
+
 ## About Pickle
 
 **Our mission is to build a living digital clone for everyone.** Glass is part of Step 1—a trusted pipeline that transforms your daily data into a scalable clone. Visit [pickle.com](https://pickle.com) to learn more.
