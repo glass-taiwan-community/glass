@@ -700,10 +700,16 @@ class OllamaService extends EventEmitter {
     async installMacOS(onProgress) {
         console.log('[OllamaService] Installing Ollama on macOS using DMG...');
         
+        // Declared outside the try so the catch block's cleanup can reach it. It was previously
+        // a const inside the try, which put it out of scope in the catch: every real install
+        // failure was replaced by "ReferenceError: dmgPath is not defined", destroying the
+        // actual reason the install failed.
+        let dmgPath;
+
         try {
             const dmgUrl = 'https://ollama.com/download/Ollama.dmg';
             const tempDir = app.getPath('temp');
-            const dmgPath = path.join(tempDir, 'Ollama.dmg');
+            dmgPath = path.join(tempDir, 'Ollama.dmg');
             const mountPoint = path.join(tempDir, 'OllamaMount');
 
             // 체크포인트 저장
@@ -761,7 +767,8 @@ class OllamaService extends EventEmitter {
         } catch (error) {
             console.error('[OllamaService] macOS installation failed:', error);
             // 설치 실패 시 정리
-            await fs.unlink(dmgPath).catch(() => {});
+            // Best effort: dmgPath is unset if the failure happened before the path was computed.
+            if (dmgPath) await fs.unlink(dmgPath).catch(() => {});
             throw new Error(`Failed to install Ollama on macOS: ${error.message}`);
         }
     }
