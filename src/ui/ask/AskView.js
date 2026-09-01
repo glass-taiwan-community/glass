@@ -642,8 +642,10 @@ export class AskView extends LitElement {
             background: transparent !important;
         }
 
-        :host-context(body.has-glass) .response-container::-webkit-scrollbar-track,
-        :host-context(body.has-glass) .response-container::-webkit-scrollbar-thumb {
+        /* The track disappears under liquid glass, but the thumb stays: it is the only signal
+           that the answer continues past the bottom edge, and hiding it makes a truncated
+           answer look like a complete one. */
+        :host-context(body.has-glass) .response-container::-webkit-scrollbar-track {
             background: transparent !important;
         }
 
@@ -1455,7 +1457,14 @@ export class AskView extends LitElement {
 
             const idealHeight = headerHeight + responseHeight + inputHeight;
 
-            const targetHeight = Math.min(700, idealHeight);
+            // The window is anchored to the header and grows downward - or upward when there is
+            // no room below - so it cannot claim the whole display. Leaving a margin keeps it on
+            // screen and keeps some of the content it is answering about visible, which is the
+            // point of a screen-aware assistant. availHeight tracks the display the window is
+            // actually on, so an external monitor gets a taller window than the laptop panel
+            // instead of both being pinned to one hardcoded number.
+            const maxHeight = Math.max(700, Math.round(window.screen.availHeight * 0.85));
+            const targetHeight = Math.min(maxHeight, idealHeight);
 
             window.api.askView.adjustWindowHeight("ask", targetHeight);
 
