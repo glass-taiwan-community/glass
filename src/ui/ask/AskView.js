@@ -174,7 +174,19 @@ export class AskView extends LitElement {
         .ask-container {
             display: flex;
             flex-direction: column;
-            height: 100%;
+            /* 100vh, not 100%: the percentage chain from the viewport is broken above this
+               element - content.html sets 'html, body { min-height: 100% }' rather than
+               'height', and the pickle-glass-app element has no height at all, so every
+               height:100% below them resolves to auto. With an auto height here, 'flex: 1' on
+               .response-container has nothing definite to fill, so it grows to the full answer,
+               never overflows, never shows a scrollbar, and the excess is clipped by
+               body overflow:hidden with no way to reach it.
+               That is also why .response-container used to carry max-height: 400px - it was the
+               only thing giving the answer area a definite height, load-bearing rather than a
+               design choice. vh is resolved against the window and ignores the broken chain.
+               The real fix is repairing that chain in content.html, but it is shared by the
+               listen, settings and shortcut windows and is not worth that blast radius here. */
+            height: 100vh;
             width: 100%;
             background: rgba(0, 0, 0, 0.6);
             border-radius: 12px;
