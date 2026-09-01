@@ -29,18 +29,24 @@ Measured widths: listen 400, ask 600, pinned 600, PAD 8.
 A 14" MacBook Pro workArea is **1512px** wide. **Three windows do not fit — over by 104px.**
 Two do: pinned + ask is 1208px with 304px to spare.
 
-**An overflow policy is therefore mandatory, not optional.** This is the real work in this
-feature; adding a window is not. Options, in rough order of preference:
+### DECIDED (2026-09-01): the pinned window is 400px wide, not 600
 
-- **Listen yields.** When a pin exists and all three want space, hide or collapse Listen. Listen
-  already has its own visibility toggle, and during an Ask-heavy exchange it is the least likely
-  of the three to be read.
-- **Narrow the pinned window.** It is a reference, not a working surface — 400px may be enough.
-  400 + 600 + 400 + 16 = 1416px, which fits a 14" screen.
-- **Stack vertically** when horizontal space runs out. Interacts badly with the tall windows the
-  height work just enabled; likely worst of the three.
+    400 (listen) + 600 (ask) + 400 (pinned) + 16 = 1416px    fits 1512 with 96px spare
 
-Decide this before writing the solver, because it determines the solver's signature.
+Chosen over the two alternatives because it is the only one that needs **no overflow policy at
+all**. All three windows simply fit, so there is no "who yields" state to design, write, or debug,
+and no window that disappears at a moment the user did not choose. The other options, and why they
+lost:
+
+- **Listen yields** — keeps both Ask windows at full width, but Listen would vanish at moments the
+  user did not choose, and during an interview that is the live transcript. Also adds visibility
+  state that has to be correct in every combination.
+- **Stack vertically** — interacts badly with the tall windows enabled by #31; worst of the three.
+
+**Consequence to accept:** at 400px the pinned answer has a much shorter line length than the
+600px live one. Prose is fine; code blocks, tables and long unbroken strings will wrap harder or
+scroll horizontally. Acceptable for a reference surface, and worth re-checking once it is real —
+if pinned answers are routinely code, revisit.
 
 ## 3. Layout work — refactor, not rewrite
 
