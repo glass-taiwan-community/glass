@@ -361,7 +361,12 @@ export class AskView extends LitElement {
         }
 
         .response-container {
-            flex: 1;
+            /* Sizes to its content rather than filling the window, so adjustWindowHeight() can
+               measure the real answer height: with flex:1 this element always grew to fill
+               whatever the window already was, its scrollHeight reported that stretched height
+               back, and the window could then only ever grow. flex-shrink stays on (with
+               min-height:0) so a long answer still collapses to fit and scrolls internally. */
+            flex: 0 1 auto;
             padding: 16px;
             padding-left: 48px;
             overflow-y: auto;
@@ -369,7 +374,6 @@ export class AskView extends LitElement {
             line-height: 1.6;
             background: transparent;
             min-height: 0;
-            max-height: 400px;
             position: relative;
         }
 
