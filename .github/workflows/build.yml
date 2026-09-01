@@ -24,12 +24,22 @@ jobs:
       - name: 📦 Install root dependencies
         run: npm install
 
+      # Placed before the builds because it is the cheapest check here: it fails in seconds
+      # rather than after a full Electron package. Warnings are baselined in eslint.config.mjs
+      # and do not fail the build; any error does.
+      - name: 🔍 Lint (Electron app)
+        run: npm run lint
+
       - name: 🌐 Install and build web (Renderer) part
         # Move to pickleglass_web directory and run commands
         working-directory: ./pickleglass_web
         run: |
           npm install
           npm run build
+
+      # Runs after the web install because next lint needs pickleglass_web's own dependencies.
+      - name: 🔍 Lint (web)
+        run: npm run lint:web
 
       - name: 🖥️ Build Electron app
         # Run Electron build script from root directory
