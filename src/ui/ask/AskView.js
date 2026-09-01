@@ -360,13 +360,12 @@ export class AskView extends LitElement {
             color: rgba(255, 255, 255, 1);
         }
 
+        /* Fills the window and scrolls. It deliberately does NOT report the answer height:
+           because it stretches to whatever the window already is, its own scrollHeight would
+           feed that stretched value back into adjustWindowHeight() and the window could only
+           ever grow. The inner .response-content is measured instead. */
         .response-container {
-            /* Sizes to its content rather than filling the window, so adjustWindowHeight() can
-               measure the real answer height: with flex:1 this element always grew to fill
-               whatever the window already was, its scrollHeight reported that stretched height
-               back, and the window could then only ever grow. flex-shrink stays on (with
-               min-height:0) so a long answer still collapses to fit and scrolls internally. */
-            flex: 0 1 auto;
+            flex: 1;
             padding: 16px;
             padding-left: 48px;
             overflow-y: auto;
@@ -379,6 +378,12 @@ export class AskView extends LitElement {
 
         .response-container.hidden {
             display: none;
+        }
+
+        /* Sized purely by its content, so its height is the real answer height. This is what
+           adjustWindowHeight() measures. */
+        .response-content {
+            min-height: 0;
         }
 
         .response-container::-webkit-scrollbar {
@@ -1030,10 +1035,12 @@ export class AskView extends LitElement {
         // Check loading state
         if (this.isLoading) {
             responseContainer.innerHTML = `
-              <div class="loading-dots">
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
+              <div class="response-content">
+                <div class="loading-dots">
+                  <div class="loading-dot"></div>
+                  <div class="loading-dot"></div>
+                  <div class="loading-dot"></div>
+                </div>
               </div>`;
             this.resetStreamingParser();
             return;
@@ -1041,7 +1048,7 @@ export class AskView extends LitElement {
         
         // If there is no response, show empty state
         if (!this.currentResponse) {
-            responseContainer.innerHTML = `<div class="empty-state">...</div>`;
+            responseContainer.innerHTML = `<div class="response-content"><div class="empty-state">...</div></div>`;
             this.resetStreamingParser();
             return;
         }
@@ -1062,8 +1069,18 @@ export class AskView extends LitElement {
     renderStreamingMarkdown(responseContainer) {
         try {
             // 파서가 없거나 컨테이너가 변경되었으면 새로 생성
-            if (!this.smdParser || this.smdContainer !== responseContainer) {
-                this.smdContainer = responseContainer;
+            // Render into an inner wrapper, not the scrolling container itself: the container
+            // stretches to the window, so it cannot also serve as the height measurement.
+            let contentEl = responseContainer.querySelector('.response-content');
+            if (!contentEl) {
+                responseContainer.innerHTML = '';
+                contentEl = document.createElement('div');
+                contentEl.className = 'response-content';
+                responseContainer.appendChild(contentEl);
+            }
+
+            if (!this.smdParser || this.smdContainer !== contentEl) {
+                this.smdContainer = contentEl;
                 this.smdContainer.innerHTML = '';
                 // A new answer is starting -- follow it from the top again.
                 this._followStream = true;
@@ -1452,7 +1469,21 @@ export class AskView extends LitElement {
             if (!headerEl || !responseEl) return;
 
             const headerHeight = headerEl.classList.contains('hidden') ? 0 : headerEl.offsetHeight;
-            const responseHeight = responseEl.scrollHeight;
+
+            // Measure the content wrapper, never the scrolling container: the container is
+            // flex:1 and therefore always as tall as the window already is, so measuring it
+            // would just report the current height back and the window could never shrink.
+            const contentEl = responseEl.querySelector('.response-content');
+            let responseHeight;
+            if (contentEl) {
+                const cs = getComputedStyle(responseEl);
+                responseHeight =
+                    contentEl.scrollHeight +
+                    parseFloat(cs.paddingTop || 0) +
+                    parseFloat(cs.paddingBottom || 0);
+            } else {
+                responseHeight = responseEl.scrollHeight;
+            }
             const inputHeight = (inputEl && !inputEl.classList.contains('hidden')) ? inputEl.offsetHeight : 0;
 
             const idealHeight = headerHeight + responseHeight + inputHeight;
