@@ -174,7 +174,19 @@ export class AskView extends LitElement {
         .ask-container {
             display: flex;
             flex-direction: column;
-            height: 100%;
+            /* 100vh, not 100%: the percentage chain from the viewport is broken above this
+               element - content.html sets 'html, body { min-height: 100% }' rather than
+               'height', and the pickle-glass-app element has no height at all, so every
+               height:100% below them resolves to auto. With an auto height here, 'flex: 1' on
+               .response-container has nothing definite to fill, so it grows to the full answer,
+               never overflows, never shows a scrollbar, and the excess is clipped by
+               body overflow:hidden with no way to reach it.
+               That is also why .response-container used to carry max-height: 400px - it was the
+               only thing giving the answer area a definite height, load-bearing rather than a
+               design choice. vh is resolved against the window and ignores the broken chain.
+               The real fix is repairing that chain in content.html, but it is shared by the
+               listen, settings and shortcut windows and is not worth that blast radius here. */
+            height: 100vh;
             width: 100%;
             background: rgba(0, 0, 0, 0.6);
             border-radius: 12px;
@@ -360,6 +372,10 @@ export class AskView extends LitElement {
             color: rgba(255, 255, 255, 1);
         }
 
+        /* Fills the window and scrolls. It deliberately does NOT report the answer height:
+           because it stretches to whatever the window already is, its own scrollHeight would
+           feed that stretched value back into adjustWindowHeight() and the window could only
+           ever grow. The inner .response-content is measured instead. */
         .response-container {
             flex: 1;
             padding: 16px;
@@ -369,12 +385,17 @@ export class AskView extends LitElement {
             line-height: 1.6;
             background: transparent;
             min-height: 0;
-            max-height: 400px;
             position: relative;
         }
 
         .response-container.hidden {
             display: none;
+        }
+
+        /* Sized purely by its content, so its height is the real answer height. This is what
+           adjustWindowHeight() measures. */
+        .response-content {
+            min-height: 0;
         }
 
         .response-container::-webkit-scrollbar {
@@ -638,8 +659,10 @@ export class AskView extends LitElement {
             background: transparent !important;
         }
 
-        :host-context(body.has-glass) .response-container::-webkit-scrollbar-track,
-        :host-context(body.has-glass) .response-container::-webkit-scrollbar-thumb {
+        /* The track disappears under liquid glass, but the thumb stays: it is the only signal
+           that the answer continues past the bottom edge, and hiding it makes a truncated
+           answer look like a complete one. */
+        :host-context(body.has-glass) .response-container::-webkit-scrollbar-track {
             background: transparent !important;
         }
 
@@ -1024,10 +1047,12 @@ export class AskView extends LitElement {
         // Check loading state
         if (this.isLoading) {
             responseContainer.innerHTML = `
-              <div class="loading-dots">
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
-                <div class="loading-dot"></div>
+              <div class="response-content">
+                <div class="loading-dots">
+                  <div class="loading-dot"></div>
+                  <div class="loading-dot"></div>
+                  <div class="loading-dot"></div>
+                </div>
               </div>`;
             this.resetStreamingParser();
             return;
@@ -1035,7 +1060,7 @@ export class AskView extends LitElement {
         
         // If there is no response, show empty state
         if (!this.currentResponse) {
-            responseContainer.innerHTML = `<div class="empty-state">...</div>`;
+            responseContainer.innerHTML = `<div class="response-content"><div class="empty-state">...</div></div>`;
             this.resetStreamingParser();
             return;
         }
@@ -1056,8 +1081,18 @@ export class AskView extends LitElement {
     renderStreamingMarkdown(responseContainer) {
         try {
             // 파서가 없거나 컨테이너가 변경되었으면 새로 생성
-            if (!this.smdParser || this.smdContainer !== responseContainer) {
-                this.smdContainer = responseContainer;
+            // Render into an inner wrapper, not the scrolling container itself: the container
+            // stretches to the window, so it cannot also serve as the height measurement.
+            let contentEl = responseContainer.querySelector('.response-content');
+            if (!contentEl) {
+                responseContainer.innerHTML = '';
+                contentEl = document.createElement('div');
+                contentEl.className = 'response-content';
+                responseContainer.appendChild(contentEl);
+            }
+
+            if (!this.smdParser || this.smdContainer !== contentEl) {
+                this.smdContainer = contentEl;
                 this.smdContainer.innerHTML = '';
                 // A new answer is starting -- follow it from the top again.
                 this._followStream = true;
@@ -1446,12 +1481,33 @@ export class AskView extends LitElement {
             if (!headerEl || !responseEl) return;
 
             const headerHeight = headerEl.classList.contains('hidden') ? 0 : headerEl.offsetHeight;
-            const responseHeight = responseEl.scrollHeight;
+
+            // Measure the content wrapper, never the scrolling container: the container is
+            // flex:1 and therefore always as tall as the window already is, so measuring it
+            // would just report the current height back and the window could never shrink.
+            const contentEl = responseEl.querySelector('.response-content');
+            let responseHeight;
+            if (contentEl) {
+                const cs = getComputedStyle(responseEl);
+                responseHeight =
+                    contentEl.scrollHeight +
+                    parseFloat(cs.paddingTop || 0) +
+                    parseFloat(cs.paddingBottom || 0);
+            } else {
+                responseHeight = responseEl.scrollHeight;
+            }
             const inputHeight = (inputEl && !inputEl.classList.contains('hidden')) ? inputEl.offsetHeight : 0;
 
             const idealHeight = headerHeight + responseHeight + inputHeight;
 
-            const targetHeight = Math.min(700, idealHeight);
+            // The window is anchored to the header and grows downward - or upward when there is
+            // no room below - so it cannot claim the whole display. Leaving a margin keeps it on
+            // screen and keeps some of the content it is answering about visible, which is the
+            // point of a screen-aware assistant. availHeight tracks the display the window is
+            // actually on, so an external monitor gets a taller window than the laptop panel
+            // instead of both being pinned to one hardcoded number.
+            const maxHeight = Math.max(700, Math.round(window.screen.availHeight * 0.85));
+            const targetHeight = Math.min(maxHeight, idealHeight);
 
             window.api.askView.adjustWindowHeight("ask", targetHeight);
 
