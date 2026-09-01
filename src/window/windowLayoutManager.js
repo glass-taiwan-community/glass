@@ -1,4 +1,5 @@
 const { screen } = require('electron');
+const { solveRow } = require('./rowLayout');
 
 /**
  * 
@@ -177,46 +178,34 @@ class WindowLayoutManager {
             }
         }
     
+        // Horizontal placement is delegated to a pure solver so it can be tested against the
+        // behaviour it replaces (tests/rowLayout.test.js). Ask is the anchor - it stays centred
+        // on the header - and the others sit beside it, which is what the previous hardcoded
+        // two-window branch did. Vertical placement was already identical in both old branches,
+        // so it collapses to one expression.
+        const row = [];
+        if (listenVis) row.push({ name: 'listen', width: listenB.width, height: listenB.height });
+        if (askVis) row.push({ name: 'ask', width: askB.width, height: askB.height });
+
+        const xs = solveRow({
+            windows: row,
+            anchor: askVis ? 'ask' : 'listen',
+            headerCenterXRel,
+            screenWidth,
+            pad: PAD,
+        });
+
         const layout = {};
-    
-        if (askVis && listenVis) {
-            let askXRel = headerCenterXRel - (askB.width / 2);
-            let listenXRel = askXRel - listenB.width - PAD;
-    
-            if (listenXRel < PAD) {
-                listenXRel = PAD;
-                askXRel = listenXRel + listenB.width + PAD;
-            }
-            if (askXRel + askB.width > screenWidth - PAD) {
-                askXRel = screenWidth - PAD - askB.width;
-                listenXRel = askXRel - listenB.width - PAD;
-            }
-            
-            if (strategy.primary === 'above') {
-                const windowBottomAbs = headerBounds.y - PAD;
-                layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(windowBottomAbs - askB.height), width: askB.width, height: askB.height };
-                layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(windowBottomAbs - listenB.height), width: listenB.width, height: listenB.height };
-            } else { // 'below'
-                const yAbs = headerBounds.y + headerBounds.height + PAD;
-                layout.ask = { x: Math.round(askXRel + workAreaX), y: Math.round(yAbs), width: askB.width, height: askB.height };
-                layout.listen = { x: Math.round(listenXRel + workAreaX), y: Math.round(yAbs), width: listenB.width, height: listenB.height };
-            }
-        } else { // Single window
-            const winName = askVis ? 'ask' : 'listen';
-            const winB = askVis ? askB : listenB;
-            if (!winB) return {};
-    
-            let xRel = headerCenterXRel - winB.width / 2;
-            xRel = Math.max(PAD, Math.min(screenWidth - winB.width - PAD, xRel));
-    
-            let yPos;
-            if (strategy.primary === 'above') {
-                yPos = (headerBounds.y - workAreaY) - PAD - winB.height;
-            } else { // 'below'
-                yPos = (headerBounds.y - workAreaY) + headerBounds.height + PAD;
-            }
-            
-            layout[winName] = { x: Math.round(xRel + workAreaX), y: Math.round(yPos + workAreaY), width: winB.width, height: winB.height };
+        for (const w of row) {
+            const yAbs = strategy.primary === 'above'
+                ? headerBounds.y - PAD - w.height
+                : headerBounds.y + headerBounds.height + PAD;
+            layout[w.name] = {
+                x: Math.round(xs[w.name] + workAreaX),
+                y: Math.round(yAbs),
+                width: w.width,
+                height: w.height,
+            };
         }
         return layout;
     }
