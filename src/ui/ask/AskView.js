@@ -260,6 +260,28 @@ export class AskView extends LitElement {
             stroke: rgba(255, 255, 255, 0.9);
         }
 
+        /* The pinned window is otherwise identical to the live one, so it needs a difference
+           that reads at a glance rather than on inspection. An amber outline plus a badge, not
+           one or the other: the outline is what the eye catches, the badge is what disambiguates
+           it if the outline is unclear over a bright background. */
+        .ask-container.pinned {
+            outline: 1px rgba(251, 191, 36, 0.55) solid;
+        }
+
+        .pin-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            margin-right: 6px;
+            border-radius: 4px;
+            background: rgba(251, 191, 36, 0.18);
+            color: rgba(251, 191, 36, 0.95);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
         .response-label {
             font-size: 13px;
             font-weight: 500;
@@ -1437,7 +1459,7 @@ export class AskView extends LitElement {
         const headerText = this.isLoading ? 'Thinking...' : 'AI Response';
 
         return html`
-            <div class="ask-container">
+            <div class="ask-container ${this.isPinned ? 'pinned' : ''}">
                 <!-- Response Header -->
                 <div class="response-header ${!hasResponse ? 'hidden' : ''}">
                     <div class="header-left">
@@ -1447,6 +1469,13 @@ export class AskView extends LitElement {
                                 <path d="M8 12l2 2 4-4" />
                             </svg>
                         </div>
+                        ${this.isPinned
+                            ? html`<span class="pin-badge">
+                                       <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                                           <path d="M14 4v5l3 3v2h-4v6l-1 1-1-1v-6H7v-2l3-3V4H9V2h6v2h-1z" />
+                                       </svg>PINNED
+                                   </span>`
+                            : ''}
                         <span class="response-label">${headerText}</span>
                     </div>
                     <div class="header-right">

@@ -183,6 +183,15 @@ class AskService {
             return { success: false, error: 'no answer to pin' };
         }
 
+        // Refused while the answer is still arriving. Pinning now would capture a partial
+        // answer, and closing the live window afterwards aborts the stream that would have
+        // completed it - so the user would end up with a truncated pin and no way back to the
+        // rest of it. Waiting a moment costs nothing; losing the tail of an answer does not.
+        if (this.state.isStreaming || this.state.isLoading) {
+            console.log('[AskService] not pinning -- the answer is still streaming');
+            return { success: false, error: 'answer still streaming' };
+        }
+
         // The window is created hidden at startup, so it is normally loaded long before the
         // first pin - but pinning immediately after launch would otherwise send the snapshot to
         // a renderer that has not yet subscribed, leaving a pinned window that is simply empty.
@@ -198,7 +207,14 @@ class AskService {
             pinnedWindow.webContents.send('ask:pinnedContent', snapshot);
         }
         internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: true });
-        console.log('[AskService] answer pinned');
+
+        // Close the live window: the same answer in two places is duplicated information taking
+        // twice the screen, and the pin has already captured it. Shown first, then closed, so
+        // there is never a frame with neither on screen. Safe to abort here because streaming
+        // was refused above, so there is no in-flight response to lose.
+        this.closeAskWindow();
+
+        console.log('[AskService] answer pinned, live Ask window closed');
         return { success: true, pinned: true };
     }
 
