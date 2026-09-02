@@ -532,11 +532,16 @@ function createFeatureWindows(header, namesToCreate) {
             }
 
             // A read-only snapshot of one Ask answer, kept beside the live Ask window so it can
-            // be referenced while asking further questions. 400px rather than Ask's 600 so that
-            // listen + ask + pinned is 1416px and still fits a 14" laptop, which removes the need
-            // for any "which window yields" logic. See memory-bank/plan-pinned-ask-window.md.
+            // be referenced while asking further questions.
+            //
+            // Width matches Ask deliberately. It was 400 so that listen + ask + pinned came to
+            // 1416px and fit a 14" laptop with no overflow policy, but 400px proved too narrow to
+            // actually read, which defeats the purpose of a reference window. At 600 the row is
+            // 1616px: fine on the 2560px external monitor in use, and wider than a 1512px laptop
+            // panel, where solveRow keeps Ask fully visible and lets the outer windows run off.
+            // Tracked as a known limitation in memory-bank/plan-pinned-ask-window.md.
             case 'ask-pinned': {
-                const pinned = new BrowserWindow({ ...commonChildOptions, width: 400 });
+                const pinned = new BrowserWindow({ ...commonChildOptions, width: 600 });
                 pinned.setContentProtection(isContentProtectionOn);
                 pinned.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
                 if (process.platform === 'darwin') {

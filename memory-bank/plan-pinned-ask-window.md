@@ -29,7 +29,33 @@ Measured widths: listen 400, ask 600, pinned 600, PAD 8.
 A 14" MacBook Pro workArea is **1512px** wide. **Three windows do not fit — over by 104px.**
 Two do: pinned + ask is 1208px with 304px to spare.
 
-### DECIDED (2026-09-01): the pinned window is 400px wide, not 600
+### REVERSED (2026-09-01, same day): back to 600px, with a known laptop limitation
+
+**400px turned out to be too narrow to read.** A reference window that is uncomfortable to read
+is not a reference window, so the width now matches Ask at 600. This undoes the reasoning below,
+which is kept because it is still the argument for going back if the laptop case starts to matter.
+
+    400 (listen) + 600 (ask) + 600 (pinned) + 16 = 1616px
+
+| display | fits? |
+|---|---|
+| 2560x1440 external (in use) | yes, comfortably |
+| 16" MacBook Pro, 1728px | yes |
+| **14" MacBook Pro, 1512px** | **no - over by 104px** |
+
+**Known limitation, accepted for now:** with all three windows open on a 14" laptop panel, the row
+is wider than the screen. `solveRow` handles this without breaking - it keeps the anchor (the live
+Ask window) fully visible and lets the row extend past the edge - so nothing becomes unusable.
+With the header centred it is the **pinned window** that loses its right-hand side; Listen stays
+on screen. Closing Listen brings the row to 1208px, which fits.
+
+**If that becomes a problem**, the fix is to choose the pinned width at layout time from the
+display width rather than fixing it at window creation: 600 where it fits, 400 where it does not.
+That needs setBounds on the pinned window during layout, which is why it was not done up front.
+
+---
+
+### Superseded: the original 400px decision
 
     400 (listen) + 600 (ask) + 400 (pinned) + 16 = 1416px    fits 1512 with 96px spare
 

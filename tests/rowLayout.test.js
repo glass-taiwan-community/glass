@@ -157,5 +157,31 @@ const SCREENS = [1512, 1728, 2560, 1920, 1280];
     ok('window taller than the screen is pinned to the top', huge === WA_Y + PAD);
 }
 
+// --- 7. The 600px pinned window: fits an external monitor, overflows a 14" laptop ---------
+{
+    const row = [{ name: 'listen', width: 400 }, { name: 'ask', width: 600 }, { name: 'pinned', width: 600 }];
+
+    const ext = solveRow({ ...{ windows: row, anchor: 'ask', pad: PAD }, headerCenterXRel: 1280, screenWidth: 2560 });
+    ok('three 600px-era windows fit a 2560px monitor',
+        ext.listen >= PAD - 1e-9 && ext.pinned + 600 <= 2560 - PAD + 1e-9);
+
+    // 400+600+600+16 = 1616 against 1512: cannot fit. Ask must stay fully visible anyway.
+    const laptop = solveRow({ ...{ windows: row, anchor: 'ask', pad: PAD }, headerCenterXRel: 756, screenWidth: 1512 });
+    ok('on a 14" laptop the live Ask window stays fully visible',
+        laptop.ask >= PAD - 1e-9 && laptop.ask + 600 <= 1512 - PAD + 1e-9);
+    // With the header centred, the row extends further right than left, so it is the pinned
+    // window that leaves the screen - Listen stays on it. Asserted the other way round first,
+    // and the test caught it.
+    ok('on a 14" laptop it is the pinned window that runs off the right',
+        laptop.pinned + 600 > 1512 - PAD && laptop.listen >= PAD - 1e-9);
+
+    // Dropping Listen brings it back within the panel.
+    const two = solveRow({
+        windows: [{ name: 'ask', width: 600 }, { name: 'pinned', width: 600 }],
+        anchor: 'ask', headerCenterXRel: 756, screenWidth: 1512, pad: PAD,
+    });
+    ok('ask + pinned alone fit a 14" laptop', two.ask >= PAD - 1e-9 && two.pinned + 600 <= 1512 - PAD + 1e-9);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

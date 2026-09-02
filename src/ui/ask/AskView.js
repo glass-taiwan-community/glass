@@ -1213,9 +1213,21 @@ export class AskView extends LitElement {
     }
 
 
+    /**
+     * Which window this view is driving. The same component renders both the live Ask window and
+     * the pinned one, so every main-process call that names a window has to ask rather than
+     * assume - a hardcoded 'ask' from the pinned view resizes the wrong window.
+     */
+    get windowName() {
+        return this.isPinned ? 'ask-pinned' : 'ask';
+    }
+
     requestWindowResize(targetHeight) {
         if (window.api) {
-            window.api.askView.adjustWindowHeight(targetHeight);
+            // The window name was missing here, so targetHeight was passed as winName and the
+            // height as undefined: windowPool.get(<a number>) finds nothing and this call has
+            // silently done nothing at all.
+            window.api.askView.adjustWindowHeight(this.windowName, targetHeight);
         }
     }
 
@@ -1535,7 +1547,7 @@ export class AskView extends LitElement {
             const maxHeight = Math.max(700, Math.round(window.screen.availHeight * 0.85));
             const targetHeight = Math.min(maxHeight, idealHeight);
 
-            window.api.askView.adjustWindowHeight("ask", targetHeight);
+            window.api.askView.adjustWindowHeight(this.windowName, targetHeight);
 
         }).catch(err => console.error('AskView adjustWindowHeight error:', err));
     }
