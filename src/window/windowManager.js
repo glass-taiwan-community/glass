@@ -107,8 +107,8 @@ const moveHeaderTo = (newX, newY) => {
     internalBridge.emit('window:moveHeaderTo', { newX, newY });
 };
 
-const adjustWindowHeight = (winName, targetHeight) => {
-    internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight });
+const adjustWindowHeight = (winName, targetHeight, animated = true) => {
+    internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight, animated });
 };
 
 
@@ -198,7 +198,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             header.setPosition(newPosition.x, newPosition.y);
         }
     });
-    internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight }) => {
+    internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight, animated = true }) => {
         if (process.env.GLASS_DEBUG_LAYOUT) console.log(`[Layout Debug] adjustWindowHeight: targetHeight=${targetHeight}`);
         const senderWindow = windowPool.get(winName);
         if (senderWindow) {
@@ -207,12 +207,22 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             const wasResizable = senderWindow.isResizable();
             if (!wasResizable) senderWindow.setResizable(true);
 
-            movementManager.animateWindowBounds(senderWindow, newBounds, {
-                onComplete: () => {
-                    if (!wasResizable) senderWindow.setResizable(false);
-                    updateChildWindowLayouts(true);
-                }
-            });
+            // While a response streams, every chunk lands here. Animating each one starts a
+            // timed tween that the next chunk cancels part-way, so across a dozen chunks the
+            // window never settles - it is in continuous motion, which is what makes a streaming
+            // answer unreadable. Applying the bounds instantly instead lets it grow in place.
+            if (animated) {
+                movementManager.animateWindowBounds(senderWindow, newBounds, {
+                    onComplete: () => {
+                        if (!wasResizable) senderWindow.setResizable(false);
+                        updateChildWindowLayouts(true);
+                    }
+                });
+            } else {
+                senderWindow.setBounds(newBounds);
+                if (!wasResizable) senderWindow.setResizable(false);
+                updateChildWindowLayouts(false);
+            }
         }
     });
 }

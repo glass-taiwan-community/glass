@@ -152,7 +152,7 @@ contextBridge.exposeInMainWorld('api', {
   askView: {
     // Window Management
     closeAskWindow: () => ipcRenderer.invoke('ask:closeAskWindow'),
-    adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    adjustWindowHeight: (winName, height, animated = true) => ipcRenderer.invoke('adjust-window-height', { winName, height, animated }),
     
     // Message Handling
     sendMessage: (text) => ipcRenderer.invoke('ask:sendQuestionFromAsk', text),
@@ -179,7 +179,7 @@ contextBridge.exposeInMainWorld('api', {
   // src/ui/listen/ListenView.js
   listenView: {
     // Window Management
-    adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    adjustWindowHeight: (winName, height, animated = true) => ipcRenderer.invoke('adjust-window-height', { winName, height, animated }),
     
     // Listeners
     onSessionStateChanged: (callback) => ipcRenderer.on('session-state-changed', callback),

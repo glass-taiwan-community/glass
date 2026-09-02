@@ -799,6 +799,7 @@ export class AskView extends LitElement {
         this.handleCloseAskWindow = this.handleCloseAskWindow.bind(this);
         this.handleCloseIfNoContent = this.handleCloseIfNoContent.bind(this);
         this.isPinned = false;
+        this._streamHeightFloor = 0;   // monotonic height while a response streams
 
         this.loadLibraries();
 
@@ -1432,7 +1433,12 @@ export class AskView extends LitElement {
             this.renderContent();
         }
     
-        if (changedProperties.has('showTextInput') || changedProperties.has('isLoading') || changedProperties.has('currentResponse')) {
+        // isStreaming has to be here too. While streaming the height is monotonic and applied
+        // without animation; the moment it stops, the window needs one final settle to its real
+        // height. Without this the last state change can be streaming:false with the response
+        // text unchanged, and the window would keep whatever peak size the stream left it at.
+        if (changedProperties.has('showTextInput') || changedProperties.has('isLoading')
+            || changedProperties.has('currentResponse') || changedProperties.has('isStreaming')) {
             this.adjustWindowHeightThrottled();
         }
     
@@ -1574,9 +1580,21 @@ export class AskView extends LitElement {
             // actually on, so an external monitor gets a taller window than the laptop panel
             // instead of both being pinned to one hardcoded number.
             const maxHeight = Math.max(700, Math.round(window.screen.availHeight * 0.85));
-            const targetHeight = Math.min(maxHeight, idealHeight);
+            let targetHeight = Math.min(maxHeight, idealHeight);
 
-            window.api.askView.adjustWindowHeight(this.windowName, targetHeight);
+            // While streaming, only ever grow. Markdown re-renders as it parses - a list or code
+            // fence can be briefly taller than its finished form - so allowing the window to
+            // shrink makes it bounce, and text the user is mid-sentence on jumps.
+            if (this.isStreaming) {
+                targetHeight = Math.max(targetHeight, this._streamHeightFloor || 0);
+                this._streamHeightFloor = targetHeight;
+            } else {
+                this._streamHeightFloor = 0;
+            }
+
+            // Instant while streaming: an animated resize per chunk never finishes before the
+            // next one cancels it, leaving the window permanently in motion.
+            window.api.askView.adjustWindowHeight(this.windowName, targetHeight, !this.isStreaming);
 
         }).catch(err => console.error('AskView adjustWindowHeight error:', err));
     }
