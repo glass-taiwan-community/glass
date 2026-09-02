@@ -879,6 +879,10 @@ export class AskView extends LitElement {
                 this.isLoading = false;
                 this.isStreaming = false;
                 this.showTextInput = false;
+                // An empty snapshot is the unpin signal. renderContent() already handles the
+                // no-response case by rendering the empty state and resetting the markdown
+                // parser, so the next pin starts from a clean container rather than appending
+                // to the previous answer.
                 this.renderContent();
             };
 

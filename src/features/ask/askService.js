@@ -171,8 +171,21 @@ class AskService {
         }
 
         if (pinnedWindow.isVisible()) {
+            // Unpin discards the answer as well as hiding the window. Hiding alone left the old
+            // answer resident in a hidden window, so the pin held stale content that only got
+            // replaced on the NEXT pin - two presses to swap one reference, with the first
+            // appearing to do nothing. Clearing makes the pair symmetric: pin captures what is
+            // on screen, unpin throws it away.
+            //
+            // Cleared on the window's own 'hide' event rather than immediately, so the content
+            // does not blank out while the window is still fading.
+            pinnedWindow.once('hide', () => {
+                if (!pinnedWindow.isDestroyed()) {
+                    pinnedWindow.webContents.send('ask:pinnedContent', { question: '', response: '' });
+                }
+            });
             internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: false });
-            console.log('[AskService] answer unpinned');
+            console.log('[AskService] answer unpinned and discarded');
             return { success: true, pinned: false };
         }
 
