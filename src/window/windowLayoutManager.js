@@ -151,11 +151,13 @@ class WindowLayoutManager {
     
         const ask = this.windowPool.get('ask');
         const listen = this.windowPool.get('listen');
+        const pinned = this.windowPool.get('ask-pinned');
     
         const askVis = visibility.ask && ask && !ask.isDestroyed();
         const listenVis = visibility.listen && listen && !listen.isDestroyed();
+        const pinnedVis = visibility['ask-pinned'] && pinned && !pinned.isDestroyed();
     
-        if (!askVis && !listenVis) return {};
+        if (!askVis && !listenVis && !pinnedVis) return {};
     
         const PAD = 8;
         const headerTopRel = headerBounds.y - workAreaY;
@@ -168,6 +170,7 @@ class WindowLayoutManager {
     
         const askB = askVis ? ask.getBounds() : null;
         const listenB = listenVis ? listen.getBounds() : null;
+        const pinnedB = pinnedVis ? pinned.getBounds() : null;
 
         if (process.env.GLASS_DEBUG_LAYOUT) {
             if (askVis) {
@@ -183,13 +186,16 @@ class WindowLayoutManager {
         // on the header - and the others sit beside it, which is what the previous hardcoded
         // two-window branch did. Vertical placement was already identical in both old branches,
         // so it collapses to one expression.
+        // Left to right: listen, ask, pinned. Ask keeps the anchor position it has always had, so
+        // it does not slide sideways when a pinned answer appears or disappears next to it.
         const row = [];
         if (listenVis) row.push({ name: 'listen', width: listenB.width, height: listenB.height });
         if (askVis) row.push({ name: 'ask', width: askB.width, height: askB.height });
+        if (pinnedVis) row.push({ name: 'ask-pinned', width: pinnedB.width, height: pinnedB.height });
 
         const xs = solveRow({
             windows: row,
-            anchor: askVis ? 'ask' : 'listen',
+            anchor: askVis ? 'ask' : (listenVis ? 'listen' : 'ask-pinned'),
             headerCenterXRel,
             screenWidth,
             pad: PAD,

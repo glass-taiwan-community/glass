@@ -83,6 +83,11 @@ class ShortcutsService {
             // Deliberately not bare Escape: a global shortcut would take Escape from every
             // other application, breaking dialogs, menus and fullscreen everywhere.
             closeAsk: isMac ? 'Cmd+Alt+\\' : 'Ctrl+Alt+\\',
+            // Deliberately NOT a second press of closeAsk. The pinned answer is the one the user
+            // kept on purpose and the live one is disposable, so closing them with the same
+            // gesture would put one extra keypress between the user and losing the deliberate
+            // one - with no way to tell, mid-conversation, which window the first press closed.
+            togglePinnedAnswer: isMac ? 'Cmd+Alt+P' : 'Ctrl+Alt+P',
             toggleListenSession: isMac ? 'Cmd+Alt+L' : 'Ctrl+Alt+L',
             edgeSnapLeft: isMac ? 'Cmd+Shift+Alt+Left' : 'Ctrl+Shift+Alt+Left',
             edgeSnapRight: isMac ? 'Cmd+Shift+Alt+Right' : 'Ctrl+Shift+Alt+Right',
@@ -272,6 +277,11 @@ class ShortcutsService {
                     // Same path as the window's X button, so an in-flight stream is aborted
                     // rather than left running behind a hidden window.
                     callback = () => askService.closeAskWindow();
+                    break;
+                case 'togglePinnedAnswer':
+                    // One key for both directions: pinning was deliberate, so unpinning gets its
+                    // own deliberate action rather than being reachable by repeating a close.
+                    callback = () => askService.togglePinnedAnswer();
                     break;
                 case 'moveUp':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };

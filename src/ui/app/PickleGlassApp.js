@@ -137,6 +137,8 @@ export class PickleGlassApp extends LitElement {
                 ></listen-view>`;
             case 'ask':
                 return html`<ask-view></ask-view>`;
+            case 'ask-pinned':
+                return html`<ask-view .isPinned=${true}></ask-view>`;
             case 'settings':
                 return html`<settings-view
                     .selectedProfile=${this.selectedProfile}

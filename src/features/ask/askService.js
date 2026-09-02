@@ -156,6 +156,42 @@ class AskService {
         }
     }
 
+    /**
+     * Pin the answer currently on screen into the separate read-only window, or unpin it.
+     *
+     * A snapshot, not a live view: askService broadcasts ask:stateUpdate only to the 'ask' window,
+     * so the pinned copy is frozen by construction rather than by a flag that could be missed.
+     */
+    togglePinnedAnswer() {
+        const pool = getWindowPool();
+        const pinnedWindow = pool?.get('ask-pinned');
+        if (!pinnedWindow || pinnedWindow.isDestroyed()) {
+            console.warn('[AskService] pinned window unavailable');
+            return { success: false, error: 'pinned window unavailable' };
+        }
+
+        if (pinnedWindow.isVisible()) {
+            internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: false });
+            console.log('[AskService] answer unpinned');
+            return { success: true, pinned: false };
+        }
+
+        // Nothing to pin is a no-op rather than an empty window: an empty pin would take screen
+        // space and give the user something else to dismiss for no benefit.
+        if (!this.state.currentResponse || !this.state.currentResponse.trim()) {
+            console.log('[AskService] nothing to pin -- no answer on screen');
+            return { success: false, error: 'no answer to pin' };
+        }
+
+        pinnedWindow.webContents.send('ask:pinnedContent', {
+            question: this.state.currentQuestion,
+            response: this.state.currentResponse,
+        });
+        internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: true });
+        console.log('[AskService] answer pinned');
+        return { success: true, pinned: true };
+    }
+
     async toggleAskButton(inputScreenOnly = false) {
         const askWindow = getWindowPool()?.get('ask');
 

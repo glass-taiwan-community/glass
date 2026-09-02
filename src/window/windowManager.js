@@ -41,18 +41,26 @@ let layoutManager = null;
 let movementManager = null;
 
 
+/**
+ * The windows laid out in a row beside the header. Order is not significant here - the row order
+ * is decided by the layout manager - but membership is: a window missing from this list is never
+ * positioned and ends up wherever it was last left.
+ */
+const FEATURE_WINDOW_NAMES = ['listen', 'ask', 'ask-pinned'];
+
+function collectVisibleFeatureWindows() {
+    const visible = {};
+    for (const name of FEATURE_WINDOW_NAMES) {
+        const win = windowPool.get(name);
+        if (win && !win.isDestroyed() && win.isVisible()) visible[name] = true;
+    }
+    return visible;
+}
+
 function updateChildWindowLayouts(animated = true) {
     // if (movementManager.isAnimating) return;
 
-    const visibleWindows = {};
-    const listenWin = windowPool.get('listen');
-    const askWin = windowPool.get('ask');
-    if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
-        visibleWindows.listen = true;
-    }
-    if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
-        visibleWindows.ask = true;
-    }
+    const visibleWindows = collectVisibleFeatureWindows();
 
     if (Object.keys(visibleWindows).length === 0) return;
 
@@ -137,15 +145,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             if (!newHeaderPosition) return;
     
             const futureHeaderBounds = { ...header.getBounds(), ...newHeaderPosition };
-            const visibleWindows = {};
-            const listenWin = windowPool.get('listen');
-            const askWin = windowPool.get('ask');
-            if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
-                visibleWindows.listen = true;
-            }
-            if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
-                visibleWindows.ask = true;
-            }
+            const visibleWindows = collectVisibleFeatureWindows();
 
             const newChildLayout = layoutManager.calculateFeatureWindowLayout(visibleWindows, futureHeaderBounds);
     
@@ -526,6 +526,34 @@ function createFeatureWindows(header, namesToCreate) {
                 break;
             }
 
+            // A read-only snapshot of one Ask answer, kept beside the live Ask window so it can
+            // be referenced while asking further questions. 400px rather than Ask's 600 so that
+            // listen + ask + pinned is 1416px and still fits a 14" laptop, which removes the need
+            // for any "which window yields" logic. See memory-bank/plan-pinned-ask-window.md.
+            case 'ask-pinned': {
+                const pinned = new BrowserWindow({ ...commonChildOptions, width: 400 });
+                pinned.setContentProtection(isContentProtectionOn);
+                pinned.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+                if (process.platform === 'darwin') {
+                    pinned.setWindowButtonVisibility(false);
+                }
+                const pinnedLoadOptions = { query: { view: 'ask-pinned' } };
+                if (!shouldUseLiquidGlass) {
+                    pinned.loadFile(path.join(__dirname, '../ui/app/content.html'), pinnedLoadOptions);
+                } else {
+                    pinnedLoadOptions.query.glass = 'true';
+                    pinned.loadFile(path.join(__dirname, '../ui/app/content.html'), pinnedLoadOptions);
+                    pinned.webContents.once('did-finish-load', () => {
+                        const viewId = liquidGlass.addView(pinned.getNativeWindowHandle());
+                        if (viewId !== -1) {
+                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
+                        }
+                    });
+                }
+                windowPool.set('ask-pinned', pinned);
+                break;
+            }
+
             // settings
             case 'settings': {
                 const settings = new BrowserWindow({ ...commonChildOptions, width:240, maxHeight:400, parent:undefined });
@@ -720,7 +748,7 @@ function createWindows() {
     setupWindowController(windowPool, layoutManager, movementManager);
 
     if (currentHeaderState === 'main') {
-        createFeatureWindows(header, ['listen', 'ask', 'settings', 'shortcut-settings']);
+        createFeatureWindows(header, ['listen', 'ask', 'ask-pinned', 'settings', 'shortcut-settings']);
     }
 
     header.setContentProtection(isContentProtectionOn);

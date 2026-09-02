@@ -159,6 +159,8 @@ contextBridge.exposeInMainWorld('api', {
 
     // Listeners
     onAskStateUpdate: (callback) => ipcRenderer.on('ask:stateUpdate', callback),
+    onPinnedContent: (callback) => ipcRenderer.on('ask:pinnedContent', callback),
+    removeOnPinnedContent: (callback) => ipcRenderer.removeListener('ask:pinnedContent', callback),
     removeOnAskStateUpdate: (callback) => ipcRenderer.removeListener('ask:stateUpdate', callback),
 
     onAskStreamError: (callback) => ipcRenderer.on('ask-response-stream-error', callback),

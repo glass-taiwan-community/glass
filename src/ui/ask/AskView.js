@@ -14,6 +14,14 @@ export class AskView extends LitElement {
         headerText: { type: String },
         headerAnimating: { type: Boolean },
         isStreaming: { type: Boolean },
+        /**
+         * Read-only snapshot mode. The same component renders the pinned window, but it must not
+         * follow the live conversation: askService broadcasts ask:stateUpdate only to the 'ask'
+         * window, so a pinned view simply never subscribes to it and receives one snapshot
+         * instead. Interactive affordances are hidden rather than merely disabled, because a
+         * control that does nothing is worse than one that is not there.
+         */
+        isPinned: { type: Boolean },
     };
 
     static styles = css`
@@ -768,6 +776,7 @@ export class AskView extends LitElement {
         this.handleScroll = this.handleScroll.bind(this);
         this.handleCloseAskWindow = this.handleCloseAskWindow.bind(this);
         this.handleCloseIfNoContent = this.handleCloseIfNoContent.bind(this);
+        this.isPinned = false;
 
         this.loadLibraries();
 
@@ -835,11 +844,28 @@ export class AskView extends LitElement {
                 }
               };
 
-            window.api.askView.onShowTextInput(this.handleShowTextInput);
-            window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
-            window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
-            window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
-            console.log('AskView: IPC 이벤트 리스너 등록 완료');
+            this.handlePinnedContent = (event, snapshot) => {
+                this.currentQuestion = (snapshot && snapshot.question) || '';
+                this.currentResponse = (snapshot && snapshot.response) || '';
+                this.headerText = 'Pinned';
+                this.isLoading = false;
+                this.isStreaming = false;
+                this.showTextInput = false;
+                this.renderContent();
+            };
+
+            if (this.isPinned) {
+                // Snapshot only. Deliberately does NOT subscribe to onAskStateUpdate or the text
+                // input channel - the whole point of a pin is that it stops changing.
+                window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
+                window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
+                window.api.askView.onPinnedContent(this.handlePinnedContent);
+            } else {
+                window.api.askView.onShowTextInput(this.handleShowTextInput);
+                window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
+                window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
+                window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
+            }
         }
     }
 
@@ -1447,7 +1473,7 @@ export class AskView extends LitElement {
                 </div>
 
                 <!-- Text Input Container -->
-                <div class="text-input-container ${!hasResponse ? 'no-response' : ''} ${!this.showTextInput ? 'hidden' : ''}">
+                <div class="text-input-container ${!hasResponse ? 'no-response' : ''} ${(!this.showTextInput || this.isPinned) ? 'hidden' : ''}">
                     <input
                         type="text"
                         id="textInput"
