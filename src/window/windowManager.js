@@ -48,6 +48,9 @@ let movementManager = null;
  */
 const FEATURE_WINDOW_NAMES = ['listen', 'ask', 'ask-pinned'];
 
+/** Every child window created at startup: the row above, plus the ones that stand alone. */
+const ALL_CHILD_WINDOW_NAMES = [...FEATURE_WINDOW_NAMES, 'settings', 'shortcut-settings'];
+
 function collectVisibleFeatureWindows() {
     const visible = {};
     for (const name of FEATURE_WINDOW_NAMES) {
@@ -633,10 +636,10 @@ function createFeatureWindows(header, namesToCreate) {
     } else if (typeof namesToCreate === 'string') {
         createFeatureWindow(namesToCreate);
     } else {
-        createFeatureWindow('listen');
-        createFeatureWindow('ask');
-        createFeatureWindow('settings');
-        createFeatureWindow('shortcut-settings');
+        // Single source of truth. This list was previously spelled out here AND at the call site
+        // that passes an explicit array, so adding a window to one left the other silently short
+        // - which is exactly how 'ask-pinned' ended up never being created.
+        ALL_CHILD_WINDOW_NAMES.forEach(name => createFeatureWindow(name));
     }
 }
 
@@ -748,7 +751,7 @@ function createWindows() {
     setupWindowController(windowPool, layoutManager, movementManager);
 
     if (currentHeaderState === 'main') {
-        createFeatureWindows(header, ['listen', 'ask', 'ask-pinned', 'settings', 'shortcut-settings']);
+        createFeatureWindows(header, ALL_CHILD_WINDOW_NAMES);
     }
 
     header.setContentProtection(isContentProtectionOn);
