@@ -220,6 +220,10 @@ class ShortcutsService {
             return;
         }
 
+        const registered = [];
+        const failed = [];
+        const unhandled = [];
+
         for (const action in keybinds) {
             const accelerator = keybinds[action];
             if (!accelerator) continue;
@@ -327,15 +331,34 @@ class ShortcutsService {
                     break;
             }
             
-            if (callback) {
-                try {
-                    globalShortcut.register(accelerator, callback);
-                } catch(e) {
-                    console.error(`[Shortcuts] Failed to register shortcut for "${action}" (${accelerator}):`, e.message);
-                }
+            if (!callback) {
+                // An action with a keybind but no case here is registered nowhere and does
+                // nothing. Silence made that indistinguishable from a working shortcut.
+                unhandled.push(action);
+                continue;
+            }
+
+            try {
+                // register() returns false when the accelerator is refused - most often because
+                // another application already holds it - and does NOT throw. Ignoring the return
+                // value made a failed registration completely silent, which is the same failure
+                // shape as a shortcut that was never added: nothing happens, and nothing says why.
+                const ok = globalShortcut.register(accelerator, callback);
+                if (ok) registered.push(`${action}=${accelerator}`);
+                else failed.push(`${action}=${accelerator}`);
+            } catch(e) {
+                failed.push(`${action}=${accelerator}`);
+                console.error(`[Shortcuts] Failed to register shortcut for "${action}" (${accelerator}):`, e.message);
             }
         }
-        console.log('[Shortcuts] All shortcuts have been registered.');
+
+        console.log(`[Shortcuts] Registered ${registered.length}: ${registered.join(', ')}`);
+        if (failed.length) {
+            console.warn(`[Shortcuts] REFUSED by the OS (already taken by another app?): ${failed.join(', ')}`);
+        }
+        if (unhandled.length) {
+            console.warn(`[Shortcuts] Keybind defined but no handler, so it does nothing: ${unhandled.join(', ')}`);
+        }
     }
 
     unregisterAll() {
