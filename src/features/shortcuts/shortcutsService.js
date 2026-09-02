@@ -1,6 +1,7 @@
 const { globalShortcut, screen } = require('electron');
 const shortcutsRepository = require('./repositories');
 const internalBridge = require('../../bridge/internalBridge');
+const holdMoveService = require('./holdMoveService');
 const askService = require('../ask/askService');
 
 // Actions that were shipped as keybinds but never implemented. They are filtered out of
@@ -227,6 +228,8 @@ class ShortcutsService {
             return;
         }
 
+        holdMoveService.init();
+
         const registered = [];
         const failed = [];
         const unhandled = [];
@@ -308,16 +311,28 @@ class ShortcutsService {
                     callback = () => askService.togglePinnedAnswer();
                     break;
                 case 'moveUp':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('up'); };
                     break;
                 case 'moveDown':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'down' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('down'); };
                     break;
                 case 'moveLeft':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'left' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('left'); };
                     break;
                 case 'moveRight':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'right' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('right'); };
                     break;
                 // Edge snap jumps the header to a screen edge. moveToEdge already handles
                 // all four directions; these are the bindings that reach it.

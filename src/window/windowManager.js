@@ -107,6 +107,15 @@ const moveHeaderTo = (newX, newY) => {
     internalBridge.emit('window:moveHeaderTo', { newX, newY });
 };
 
+/**
+ * Move the header by a pixel delta, immediately. Used by hold-to-move, which issues many small
+ * moves a frame apart: animating each one would queue tweens that cancel each other and the
+ * window would lag behind the key rather than tracking it.
+ */
+const nudgeWindow = (dx, dy) => {
+    internalBridge.emit('window:moveNudge', { dx, dy });
+};
+
 const adjustWindowHeight = (winName, targetHeight, animated = true) => {
     internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight, animated });
 };
@@ -197,6 +206,16 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             const newPosition = layoutManager.calculateClampedPosition(header, { x: newX, y: newY });
             header.setPosition(newPosition.x, newPosition.y);
         }
+    });
+    internalBridge.on('window:moveNudge', ({ dx, dy }) => {
+        const header = windowPool.get('header');
+        if (!header || header.isDestroyed() || !header.isVisible()) return;
+        const b = header.getBounds();
+        const target = layoutManager.calculateClampedPosition(header, { x: b.x + dx, y: b.y + dy });
+        if (!target) return;
+        header.setPosition(target.x, target.y);
+        // Children follow without animation, for the same reason the header does.
+        updateChildWindowLayouts(false);
     });
     internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight, animated = true }) => {
         if (process.env.GLASS_DEBUG_LAYOUT) console.log(`[Layout Debug] adjustWindowHeight: targetHeight=${targetHeight}`);
@@ -858,4 +877,5 @@ module.exports = {
     getHeaderPosition,
     moveHeaderTo,
     adjustWindowHeight,
+    nudgeWindow,
 };

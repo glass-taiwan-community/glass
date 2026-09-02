@@ -21,7 +21,7 @@ const HARD_CAP_MS = 20000;    // backstop: a stuck-down key can never record for
 
 let availability = { available: false, error: 'not checked yet', version: null };
 
-let uIOhook = null;           // the hook object, once loaded
+const keyboardHook = require('../common/services/keyboardHookService');
 let hookRunning = false;      // whether the global hook is currently started
 let isRecording = false;      // whether a hold is currently in progress
 let holdStart = 0;
@@ -35,17 +35,12 @@ let keyupHandler = null;
  * @returns {{available: boolean, error: string|null, version: string|null}}
  */
 function checkAvailability() {
-    try {
-        const mod = require('uiohook-napi');
-        uIOhook = mod.uIOhook;
-        let version = null;
-        try { version = require('uiohook-napi/package.json').version; } catch { /* non-fatal */ }
-        availability = { available: true, error: null, version };
-        console.log(`[VoiceAsk] uiohook-napi loaded OK (v${version || '?'}) -- voice input AVAILABLE`);
-    } catch (err) {
-        availability = { available: false, error: err.message, version: null };
-        console.error(`[VoiceAsk] uiohook-napi failed to load -- voice input UNAVAILABLE:`, err.message);
-    }
+    // The hook itself is loaded and owned by keyboardHookService, which reference-counts it so
+    // voice-ask and hold-to-move cannot stop each other's input. This keeps the same shape it
+    // always returned so callers and IPC consumers are unaffected.
+    availability = keyboardHook.getAvailability();
+    console.log(`[VoiceAsk] voice input ${availability.available ? 'AVAILABLE' : 'UNAVAILABLE'}`
+        + (availability.error ? ` -- ${availability.error}` : ''));
     return availability;
 }
 
@@ -100,37 +95,37 @@ function endHold() {
  * @returns {boolean} whether the hook is running after the call
  */
 function start() {
-    if (!availability.available || !uIOhook) {
+    if (!keyboardHook.isAvailable()) {
         console.warn('[VoiceAsk] start() ignored -- hook unavailable');
         return false;
     }
     if (hookRunning) return true;
-    try {
-        // Guard every callback body: an uncaught throw here becomes a fatal main-process dialog.
-        keydownHandler = (e) => { try { if (e.keycode === HOLD_KEYCODE) beginHold(); } catch (err) { console.error('[VoiceAsk] keydown handler error:', err.message); } };
-        keyupHandler   = (e) => { try { if (e.keycode === HOLD_KEYCODE) endHold();   } catch (err) { console.error('[VoiceAsk] keyup handler error:', err.message); } };
-        uIOhook.on('keydown', keydownHandler);
-        uIOhook.on('keyup', keyupHandler);
-        uIOhook.start();
-        hookRunning = true;
-        console.log(`[VoiceAsk] global hook STARTED -- hold ${HOLD_KEY_LABEL} to record`);
-        return true;
-    } catch (err) {
-        console.error('[VoiceAsk] failed to start hook:', err.message);
-        hookRunning = false;
+
+    // keyboardHookService wraps each handler, so a throw inside one can no longer become a fatal
+    // main-process dialog.
+    keydownHandler = keyboardHook.on('keydown', (e) => { if (e.keycode === HOLD_KEYCODE) beginHold(); }, 'VoiceAsk');
+    keyupHandler = keyboardHook.on('keyup', (e) => { if (e.keycode === HOLD_KEYCODE) endHold(); }, 'VoiceAsk');
+
+    if (!keyboardHook.acquire('VoiceAsk')) {
+        keyboardHook.off('keydown', keydownHandler);
+        keyboardHook.off('keyup', keyupHandler);
+        keydownHandler = keyupHandler = null;
         return false;
     }
+    hookRunning = true;
+    console.log(`[VoiceAsk] listening -- hold ${HOLD_KEY_LABEL} to record`);
+    return true;
 }
 
 /** Stop the global hook and detach handlers. No-op if not running. */
 function stop() {
-    if (!hookRunning || !uIOhook) return;
+    if (!hookRunning) return;
     try {
-        if (keydownHandler) uIOhook.off('keydown', keydownHandler);
-        if (keyupHandler) uIOhook.off('keyup', keyupHandler);
-        uIOhook.stop();
+        keyboardHook.off('keydown', keydownHandler);
+        keyboardHook.off('keyup', keyupHandler);
+        keyboardHook.release('VoiceAsk');
     } catch (err) {
-        console.error('[VoiceAsk] error stopping hook:', err.message);
+        console.error('[VoiceAsk] error releasing hook:', err.message);
     } finally {
         keydownHandler = keyupHandler = null;
         if (capTimer) { clearTimeout(capTimer); capTimer = null; }
