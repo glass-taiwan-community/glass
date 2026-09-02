@@ -8,7 +8,10 @@ const askService = require('../ask/askService');
 // the shortcut editor. previousResponse/nextResponse default to Cmd+[ / Cmd+], which are
 // browser back/forward -- registering them stole those keys system-wide to drive handlers
 // that do not exist. Restore an entry here once the feature behind it is actually built.
-const RETIRED_ACTIONS = new Set(['previousResponse', 'nextResponse']);
+// Actions whose saved keybinds must be dropped rather than merged. Without this a binding that
+// still exists in the user's database keeps claiming its accelerator, and a new action given the
+// same one silently loses the race - globalShortcut refuses a duplicate.
+const RETIRED_ACTIONS = new Set(['previousResponse', 'nextResponse', 'edgeSnapUp', 'edgeSnapDown']);
 
 
 class ShortcutsService {
@@ -91,8 +94,12 @@ class ShortcutsService {
             toggleListenSession: isMac ? 'Cmd+Alt+L' : 'Ctrl+Alt+L',
             edgeSnapLeft: isMac ? 'Cmd+Shift+Alt+Left' : 'Ctrl+Shift+Alt+Left',
             edgeSnapRight: isMac ? 'Cmd+Shift+Alt+Right' : 'Ctrl+Shift+Alt+Right',
-            edgeSnapUp: isMac ? 'Cmd+Shift+Alt+Up' : 'Ctrl+Shift+Alt+Up',
-            edgeSnapDown: isMac ? 'Cmd+Shift+Alt+Down' : 'Ctrl+Shift+Alt+Down',
+            // Reclaimed from edgeSnapUp/edgeSnapDown. Every arrow-key modifier combination was
+            // already taken - Cmd, Cmd+Shift, Cmd+Alt and Cmd+Shift+Alt - so a third scrollable
+            // window had nowhere to go. Vertical edge snapping was the least used of the
+            // candidates; horizontal snapping, which is the common one, is untouched.
+            scrollPinnedUp: isMac ? 'Cmd+Shift+Alt+Up' : 'Ctrl+Shift+Alt+Up',
+            scrollPinnedDown: isMac ? 'Cmd+Shift+Alt+Down' : 'Ctrl+Shift+Alt+Down',
         };
     }
 
@@ -282,6 +289,19 @@ class ShortcutsService {
                     // rather than left running behind a hidden window.
                     callback = () => askService.closeAskWindow();
                     break;
+                case 'scrollPinnedUp':
+                case 'scrollPinnedDown': {
+                    // Same channels the live Ask window listens on - the pinned view is the same
+                    // component, so it already handles them.
+                    const channel = action === 'scrollPinnedUp' ? 'ask:scrollResponseUp' : 'ask:scrollResponseDown';
+                    callback = () => {
+                        const pinnedWindow = this.windowPool.get('ask-pinned');
+                        if (pinnedWindow && !pinnedWindow.isDestroyed() && pinnedWindow.isVisible()) {
+                            pinnedWindow.webContents.send(channel);
+                        }
+                    };
+                    break;
+                }
                 case 'togglePinnedAnswer':
                     // One key for both directions: pinning was deliberate, so unpinning gets its
                     // own deliberate action rather than being reachable by repeating a close.
@@ -307,12 +327,7 @@ class ShortcutsService {
                 case 'edgeSnapRight':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'right' }); };
                     break;
-                case 'edgeSnapUp':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'up' }); };
-                    break;
-                case 'edgeSnapDown':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'down' }); };
-                    break;
+
                 case 'toggleClickThrough':
                      callback = () => {
                         this.mouseEventsIgnored = !this.mouseEventsIgnored;
