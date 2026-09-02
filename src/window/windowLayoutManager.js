@@ -1,5 +1,5 @@
 const { screen } = require('electron');
-const { solveRow } = require('./rowLayout');
+const { solveRow, solveVerticalPosition } = require('./rowLayout');
 
 /**
  * 
@@ -197,9 +197,15 @@ class WindowLayoutManager {
 
         const layout = {};
         for (const w of row) {
-            const yAbs = strategy.primary === 'above'
-                ? headerBounds.y - PAD - w.height
-                : headerBounds.y + headerBounds.height + PAD;
+            const yAbs = solveVerticalPosition({
+                primary: strategy.primary,
+                headerY: headerBounds.y,
+                headerHeight: headerBounds.height,
+                windowHeight: w.height,
+                workAreaY,
+                screenHeight,
+                pad: PAD,
+            });
             layout[w.name] = {
                 x: Math.round(xs[w.name] + workAreaX),
                 y: Math.round(yAbs),

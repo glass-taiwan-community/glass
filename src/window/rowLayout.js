@@ -68,4 +68,37 @@ function solveRow({ windows, anchor, headerCenterXRel, screenWidth, pad }) {
     return out;
 }
 
-module.exports = { solveRow };
+/**
+ * Vertical placement for one feature window.
+ *
+ * The side (above/below) is chosen elsewhere by determineLayoutStrategy, which asks only whether
+ * there is at least 400px of space and never how tall the window will actually be. That was
+ * harmless while the Ask window was capped at 700px, but #31 made the cap screen-derived - up to
+ * roughly 1200px on a large monitor - so a window can now be placed below a low header and run
+ * off the bottom of the screen, out of reach.
+ *
+ * This deliberately does NOT change which side is chosen. Making the strategy height-aware would
+ * also change it for SHORT windows (a 300px window fits in 350px of space but today's >=400 test
+ * rejects it), altering placements that currently work. Clamping only ever moves a window that
+ * would otherwise have been partly off-screen, which is strictly better than unreachable.
+ *
+ * @returns {number} Absolute y.
+ */
+function solveVerticalPosition({ primary, headerY, headerHeight, windowHeight, workAreaY, screenHeight, pad }) {
+    let y = primary === 'above'
+        ? headerY - pad - windowHeight
+        : headerY + headerHeight + pad;
+
+    const minY = workAreaY + pad;
+    const maxY = workAreaY + screenHeight - windowHeight - pad;
+
+    // A window taller than the work area cannot satisfy both edges. Prefer the top, so the start
+    // of the answer is readable and the rest can be scrolled.
+    if (maxY < minY) return minY;
+
+    if (y > maxY) y = maxY;
+    if (y < minY) y = minY;
+    return y;
+}
+
+module.exports = { solveRow, solveVerticalPosition };

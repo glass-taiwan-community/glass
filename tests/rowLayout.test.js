@@ -8,7 +8,7 @@
  *
  * Run: node tests/rowLayout.test.js
  */
-const { solveRow } = require('../src/window/rowLayout.js');
+const { solveRow, solveVerticalPosition } = require('../src/window/rowLayout.js');
 
 const PAD = 8;
 let pass = 0, fail = 0;
@@ -123,6 +123,38 @@ const SCREENS = [1512, 1728, 2560, 1920, 1280];
     });
     ok('anchor fully visible when the row cannot fit', r.ask >= PAD - 1e-9 && r.ask + 600 <= 1280 - PAD + 1e-9);
     ok('outer windows are allowed off-screen instead', r.listen < PAD);
+}
+
+// --- 6. Vertical clamping only moves windows that would have gone off screen -------------
+{
+    const WA_Y = 37, SCREEN_H = 945;   // 14" MBP work area
+    const base = { workAreaY: WA_Y, screenHeight: SCREEN_H, pad: PAD, headerHeight: 47 };
+
+    // Unchanged whenever the window already fits: this is the case the five verified layouts use.
+    let moved = 0, checked = 0;
+    for (const windowHeight of [200, 400, 700]) {
+        for (let headerY = WA_Y; headerY < WA_Y + SCREEN_H - 47; headerY += 11) {
+            for (const primary of ['above', 'below']) {
+                const naive = primary === 'above'
+                    ? headerY - PAD - windowHeight
+                    : headerY + 47 + PAD;
+                const fits = naive >= WA_Y + PAD && naive + windowHeight <= WA_Y + SCREEN_H - PAD;
+                const actual = solveVerticalPosition({ ...base, primary, headerY, windowHeight });
+                checked++;
+                if (fits && actual !== naive) moved++;
+            }
+        }
+    }
+    ok(`vertical position untouched where it already fitted (${checked} cases)`, moved === 0);
+
+    // The bug this exists for: a tall window below a low header used to run off the bottom.
+    const tall = solveVerticalPosition({ ...base, primary: 'below', headerY: WA_Y + 600, windowHeight: 800 });
+    ok('tall window below a low header is pulled back on screen',
+        tall + 800 <= WA_Y + SCREEN_H - PAD + 1e-9 && tall >= WA_Y + PAD - 1e-9);
+
+    // Taller than the whole work area: prefer the top so the answer starts readable.
+    const huge = solveVerticalPosition({ ...base, primary: 'below', headerY: WA_Y + 100, windowHeight: 2000 });
+    ok('window taller than the screen is pinned to the top', huge === WA_Y + PAD);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
