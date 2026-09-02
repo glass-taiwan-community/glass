@@ -785,9 +785,14 @@ export class AskView extends LitElement {
         this.smdContainer = null;
         this.lastProcessedLength = 0;
 
-        // Auto-follow the stream only while the reader is at the bottom. The moment they
-        // scroll up to read, stop yanking them down; resume if they return to the bottom.
-        this._followStream = true;
+        // Start at the top of each answer and STAY there. Following the stream by default meant
+        // every chunk scrolled the view to the newest sentence, so the lines being read were
+        // pulled away mid-sentence - the answer was only readable once it had finished.
+        //
+        // Following is opt-in instead: the scroll listener turns it on when the reader scrolls
+        // to the bottom, which is the unambiguous way of saying "show me what is arriving", and
+        // off again the moment they scroll back up.
+        this._followStream = false;
         this._scrollListenerAttached = false;
 
         this.handleSendText = this.handleSendText.bind(this);
@@ -1143,8 +1148,9 @@ export class AskView extends LitElement {
             if (!this.smdParser || this.smdContainer !== contentEl) {
                 this.smdContainer = contentEl;
                 this.smdContainer.innerHTML = '';
-                // A new answer is starting -- follow it from the top again.
-                this._followStream = true;
+                // A new answer starts at its top and stays there until the reader asks to
+                // follow, by scrolling to the bottom themselves.
+                this._followStream = false;
                 
                 // smd.js의 default_renderer 사용
                 const renderer = default_renderer(this.smdContainer);
