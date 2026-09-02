@@ -357,22 +357,28 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
         return;
     }
 
-    if (name === 'listen' || name === 'ask') {
+    if (FEATURE_WINDOW_NAMES.includes(name)) {
         const win = windowPool.get(name);
-        const otherName = name === 'listen' ? 'ask' : 'listen';
-        const otherWin = windowPool.get(otherName);
-        const isOtherWinVisible = otherWin && !otherWin.isDestroyed() && otherWin.isVisible();
-        
+
         const ANIM_OFFSET_X = 50;
         const ANIM_OFFSET_Y = 20;
 
-        const finalVisibility = {
-            listen: (name === 'listen' && shouldBeVisible) || (otherName === 'listen' && isOtherWinVisible),
-            ask: (name === 'ask' && shouldBeVisible) || (otherName === 'ask' && isOtherWinVisible),
+        // Start from what is actually visible right now and apply only the requested change.
+        // The previous version enumerated exactly listen and ask and derived one from the other,
+        // so any third window was omitted from the layout whenever either of those was shown or
+        // hidden - it would have been left wherever it happened to be.
+        const finalVisibility = collectVisibleFeatureWindows();
+        if (shouldBeVisible) finalVisibility[name] = true;
+        else delete finalVisibility[name];
+
+        // Each window slides in from the side it lives on: listen from the left, pinned from the
+        // right, ask from above since it sits in the middle.
+        const applyEntryOffset = (pos) => {
+            if (name === 'listen') pos.x -= ANIM_OFFSET_X;
+            else if (name === 'ask-pinned') pos.x += ANIM_OFFSET_X;
+            else pos.y -= ANIM_OFFSET_Y;
+            return pos;
         };
-        if (!shouldBeVisible) {
-            finalVisibility[name] = false;
-        }
 
         const targetLayout = layoutManager.calculateFeatureWindowLayout(finalVisibility);
 
@@ -381,9 +387,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             const targetBounds = targetLayout[name];
             if (!targetBounds) return;
 
-            const startPos = { ...targetBounds };
-            if (name === 'listen') startPos.x -= ANIM_OFFSET_X;
-            else if (name === 'ask') startPos.y -= ANIM_OFFSET_Y;
+            const startPos = applyEntryOffset({ ...targetBounds });
 
             win.setOpacity(0);
             win.setBounds(startPos);
@@ -396,9 +400,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             if (!win || !win.isVisible()) return;
 
             const currentBounds = win.getBounds();
-            const targetPos = { ...currentBounds };
-            if (name === 'listen') targetPos.x -= ANIM_OFFSET_X;
-            else if (name === 'ask') targetPos.y -= ANIM_OFFSET_Y;
+            const targetPos = applyEntryOffset({ ...currentBounds });
 
             movementManager.fade(win, { to: 0, onComplete: () => win.hide() });
             movementManager.animateWindowPosition(win, targetPos);

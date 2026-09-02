@@ -183,10 +183,20 @@ class AskService {
             return { success: false, error: 'no answer to pin' };
         }
 
-        pinnedWindow.webContents.send('ask:pinnedContent', {
+        // The window is created hidden at startup, so it is normally loaded long before the
+        // first pin - but pinning immediately after launch would otherwise send the snapshot to
+        // a renderer that has not yet subscribed, leaving a pinned window that is simply empty.
+        const snapshot = {
             question: this.state.currentQuestion,
             response: this.state.currentResponse,
-        });
+        };
+        if (pinnedWindow.webContents.isLoading()) {
+            pinnedWindow.webContents.once('did-finish-load', () => {
+                if (!pinnedWindow.isDestroyed()) pinnedWindow.webContents.send('ask:pinnedContent', snapshot);
+            });
+        } else {
+            pinnedWindow.webContents.send('ask:pinnedContent', snapshot);
+        }
         internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: true });
         console.log('[AskService] answer pinned');
         return { success: true, pinned: true };
