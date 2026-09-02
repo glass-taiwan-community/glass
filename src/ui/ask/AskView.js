@@ -14,6 +14,14 @@ export class AskView extends LitElement {
         headerText: { type: String },
         headerAnimating: { type: Boolean },
         isStreaming: { type: Boolean },
+        /**
+         * Read-only snapshot mode. The same component renders the pinned window, but it must not
+         * follow the live conversation: askService broadcasts ask:stateUpdate only to the 'ask'
+         * window, so a pinned view simply never subscribes to it and receives one snapshot
+         * instead. Interactive affordances are hidden rather than merely disabled, because a
+         * control that does nothing is worse than one that is not there.
+         */
+        isPinned: { type: Boolean },
     };
 
     static styles = css`
@@ -250,6 +258,28 @@ export class AskView extends LitElement {
             width: 12px;
             height: 12px;
             stroke: rgba(255, 255, 255, 0.9);
+        }
+
+        /* The pinned window is otherwise identical to the live one, so it needs a difference
+           that reads at a glance rather than on inspection. An amber outline plus a badge, not
+           one or the other: the outline is what the eye catches, the badge is what disambiguates
+           it if the outline is unclear over a bright background. */
+        .ask-container.pinned {
+            outline: 1px rgba(251, 191, 36, 0.55) solid;
+        }
+
+        .pin-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 6px;
+            margin-right: 6px;
+            border-radius: 4px;
+            background: rgba(251, 191, 36, 0.18);
+            color: rgba(251, 191, 36, 0.95);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
         }
 
         .response-label {
@@ -755,9 +785,14 @@ export class AskView extends LitElement {
         this.smdContainer = null;
         this.lastProcessedLength = 0;
 
-        // Auto-follow the stream only while the reader is at the bottom. The moment they
-        // scroll up to read, stop yanking them down; resume if they return to the bottom.
-        this._followStream = true;
+        // Start at the top of each answer and STAY there. Following the stream by default meant
+        // every chunk scrolled the view to the newest sentence, so the lines being read were
+        // pulled away mid-sentence - the answer was only readable once it had finished.
+        //
+        // Following is opt-in instead: the scroll listener turns it on when the reader scrolls
+        // to the bottom, which is the unambiguous way of saying "show me what is arriving", and
+        // off again the moment they scroll back up.
+        this._followStream = false;
         this._scrollListenerAttached = false;
 
         this.handleSendText = this.handleSendText.bind(this);
@@ -768,6 +803,8 @@ export class AskView extends LitElement {
         this.handleScroll = this.handleScroll.bind(this);
         this.handleCloseAskWindow = this.handleCloseAskWindow.bind(this);
         this.handleCloseIfNoContent = this.handleCloseIfNoContent.bind(this);
+        this.isPinned = false;
+        this._streamHeightFloor = 0;   // monotonic height while a response streams
 
         this.loadLibraries();
 
@@ -835,11 +872,32 @@ export class AskView extends LitElement {
                 }
               };
 
-            window.api.askView.onShowTextInput(this.handleShowTextInput);
-            window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
-            window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
-            window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
-            console.log('AskView: IPC 이벤트 리스너 등록 완료');
+            this.handlePinnedContent = (event, snapshot) => {
+                this.currentQuestion = (snapshot && snapshot.question) || '';
+                this.currentResponse = (snapshot && snapshot.response) || '';
+                this.headerText = 'Pinned';
+                this.isLoading = false;
+                this.isStreaming = false;
+                this.showTextInput = false;
+                // An empty snapshot is the unpin signal. renderContent() already handles the
+                // no-response case by rendering the empty state and resetting the markdown
+                // parser, so the next pin starts from a clean container rather than appending
+                // to the previous answer.
+                this.renderContent();
+            };
+
+            if (this.isPinned) {
+                // Snapshot only. Deliberately does NOT subscribe to onAskStateUpdate or the text
+                // input channel - the whole point of a pin is that it stops changing.
+                window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
+                window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
+                window.api.askView.onPinnedContent(this.handlePinnedContent);
+            } else {
+                window.api.askView.onShowTextInput(this.handleShowTextInput);
+                window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
+                window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
+                window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
+            }
         }
     }
 
@@ -1094,8 +1152,9 @@ export class AskView extends LitElement {
             if (!this.smdParser || this.smdContainer !== contentEl) {
                 this.smdContainer = contentEl;
                 this.smdContainer.innerHTML = '';
-                // A new answer is starting -- follow it from the top again.
-                this._followStream = true;
+                // A new answer starts at its top and stays there until the reader asks to
+                // follow, by scrolling to the bottom themselves.
+                this._followStream = false;
                 
                 // smd.js의 default_renderer 사용
                 const renderer = default_renderer(this.smdContainer);
@@ -1187,9 +1246,21 @@ export class AskView extends LitElement {
     }
 
 
+    /**
+     * Which window this view is driving. The same component renders both the live Ask window and
+     * the pinned one, so every main-process call that names a window has to ask rather than
+     * assume - a hardcoded 'ask' from the pinned view resizes the wrong window.
+     */
+    get windowName() {
+        return this.isPinned ? 'ask-pinned' : 'ask';
+    }
+
     requestWindowResize(targetHeight) {
         if (window.api) {
-            window.api.askView.adjustWindowHeight(targetHeight);
+            // The window name was missing here, so targetHeight was passed as winName and the
+            // height as undefined: windowPool.get(<a number>) finds nothing and this call has
+            // silently done nothing at all.
+            window.api.askView.adjustWindowHeight(this.windowName, targetHeight);
         }
     }
 
@@ -1372,7 +1443,12 @@ export class AskView extends LitElement {
             this.renderContent();
         }
     
-        if (changedProperties.has('showTextInput') || changedProperties.has('isLoading') || changedProperties.has('currentResponse')) {
+        // isStreaming has to be here too. While streaming the height is monotonic and applied
+        // without animation; the moment it stops, the window needs one final settle to its real
+        // height. Without this the last state change can be streaming:false with the response
+        // text unchanged, and the window would keep whatever peak size the stream left it at.
+        if (changedProperties.has('showTextInput') || changedProperties.has('isLoading')
+            || changedProperties.has('currentResponse') || changedProperties.has('isStreaming')) {
             this.adjustWindowHeightThrottled();
         }
     
@@ -1399,7 +1475,7 @@ export class AskView extends LitElement {
         const headerText = this.isLoading ? 'Thinking...' : 'AI Response';
 
         return html`
-            <div class="ask-container">
+            <div class="ask-container ${this.isPinned ? 'pinned' : ''}">
                 <!-- Response Header -->
                 <div class="response-header ${!hasResponse ? 'hidden' : ''}">
                     <div class="header-left">
@@ -1409,6 +1485,13 @@ export class AskView extends LitElement {
                                 <path d="M8 12l2 2 4-4" />
                             </svg>
                         </div>
+                        ${this.isPinned
+                            ? html`<span class="pin-badge">
+                                       <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                                           <path d="M14 4v5l3 3v2h-4v6l-1 1-1-1v-6H7v-2l3-3V4H9V2h6v2h-1z" />
+                                       </svg>PINNED
+                                   </span>`
+                            : ''}
                         <span class="response-label">${headerText}</span>
                     </div>
                     <div class="header-right">
@@ -1447,7 +1530,7 @@ export class AskView extends LitElement {
                 </div>
 
                 <!-- Text Input Container -->
-                <div class="text-input-container ${!hasResponse ? 'no-response' : ''} ${!this.showTextInput ? 'hidden' : ''}">
+                <div class="text-input-container ${!hasResponse ? 'no-response' : ''} ${(!this.showTextInput || this.isPinned) ? 'hidden' : ''}">
                     <input
                         type="text"
                         id="textInput"
@@ -1507,9 +1590,21 @@ export class AskView extends LitElement {
             // actually on, so an external monitor gets a taller window than the laptop panel
             // instead of both being pinned to one hardcoded number.
             const maxHeight = Math.max(700, Math.round(window.screen.availHeight * 0.85));
-            const targetHeight = Math.min(maxHeight, idealHeight);
+            let targetHeight = Math.min(maxHeight, idealHeight);
 
-            window.api.askView.adjustWindowHeight("ask", targetHeight);
+            // While streaming, only ever grow. Markdown re-renders as it parses - a list or code
+            // fence can be briefly taller than its finished form - so allowing the window to
+            // shrink makes it bounce, and text the user is mid-sentence on jumps.
+            if (this.isStreaming) {
+                targetHeight = Math.max(targetHeight, this._streamHeightFloor || 0);
+                this._streamHeightFloor = targetHeight;
+            } else {
+                this._streamHeightFloor = 0;
+            }
+
+            // Instant while streaming: an animated resize per chunk never finishes before the
+            // next one cancels it, leaving the window permanently in motion.
+            window.api.askView.adjustWindowHeight(this.windowName, targetHeight, !this.isStreaming);
 
         }).catch(err => console.error('AskView adjustWindowHeight error:', err));
     }

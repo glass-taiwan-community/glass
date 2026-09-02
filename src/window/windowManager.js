@@ -41,18 +41,29 @@ let layoutManager = null;
 let movementManager = null;
 
 
+/**
+ * The windows laid out in a row beside the header. Order is not significant here - the row order
+ * is decided by the layout manager - but membership is: a window missing from this list is never
+ * positioned and ends up wherever it was last left.
+ */
+const FEATURE_WINDOW_NAMES = ['listen', 'ask', 'ask-pinned'];
+
+/** Every child window created at startup: the row above, plus the ones that stand alone. */
+const ALL_CHILD_WINDOW_NAMES = [...FEATURE_WINDOW_NAMES, 'settings', 'shortcut-settings'];
+
+function collectVisibleFeatureWindows() {
+    const visible = {};
+    for (const name of FEATURE_WINDOW_NAMES) {
+        const win = windowPool.get(name);
+        if (win && !win.isDestroyed() && win.isVisible()) visible[name] = true;
+    }
+    return visible;
+}
+
 function updateChildWindowLayouts(animated = true) {
     // if (movementManager.isAnimating) return;
 
-    const visibleWindows = {};
-    const listenWin = windowPool.get('listen');
-    const askWin = windowPool.get('ask');
-    if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
-        visibleWindows.listen = true;
-    }
-    if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
-        visibleWindows.ask = true;
-    }
+    const visibleWindows = collectVisibleFeatureWindows();
 
     if (Object.keys(visibleWindows).length === 0) return;
 
@@ -96,8 +107,17 @@ const moveHeaderTo = (newX, newY) => {
     internalBridge.emit('window:moveHeaderTo', { newX, newY });
 };
 
-const adjustWindowHeight = (winName, targetHeight) => {
-    internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight });
+/**
+ * Move the header by a pixel delta, immediately. Used by hold-to-move, which issues many small
+ * moves a frame apart: animating each one would queue tweens that cancel each other and the
+ * window would lag behind the key rather than tracking it.
+ */
+const nudgeWindow = (dx, dy) => {
+    internalBridge.emit('window:moveNudge', { dx, dy });
+};
+
+const adjustWindowHeight = (winName, targetHeight, animated = true) => {
+    internalBridge.emit('window:adjustWindowHeight', { winName, targetHeight, animated });
 };
 
 
@@ -137,15 +157,7 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             if (!newHeaderPosition) return;
     
             const futureHeaderBounds = { ...header.getBounds(), ...newHeaderPosition };
-            const visibleWindows = {};
-            const listenWin = windowPool.get('listen');
-            const askWin = windowPool.get('ask');
-            if (listenWin && !listenWin.isDestroyed() && listenWin.isVisible()) {
-                visibleWindows.listen = true;
-            }
-            if (askWin && !askWin.isDestroyed() && askWin.isVisible()) {
-                visibleWindows.ask = true;
-            }
+            const visibleWindows = collectVisibleFeatureWindows();
 
             const newChildLayout = layoutManager.calculateFeatureWindowLayout(visibleWindows, futureHeaderBounds);
     
@@ -195,7 +207,17 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             header.setPosition(newPosition.x, newPosition.y);
         }
     });
-    internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight }) => {
+    internalBridge.on('window:moveNudge', ({ dx, dy }) => {
+        const header = windowPool.get('header');
+        if (!header || header.isDestroyed() || !header.isVisible()) return;
+        const b = header.getBounds();
+        const target = layoutManager.calculateClampedPosition(header, { x: b.x + dx, y: b.y + dy });
+        if (!target) return;
+        header.setPosition(target.x, target.y);
+        // Children follow without animation, for the same reason the header does.
+        updateChildWindowLayouts(false);
+    });
+    internalBridge.on('window:adjustWindowHeight', ({ winName, targetHeight, animated = true }) => {
         if (process.env.GLASS_DEBUG_LAYOUT) console.log(`[Layout Debug] adjustWindowHeight: targetHeight=${targetHeight}`);
         const senderWindow = windowPool.get(winName);
         if (senderWindow) {
@@ -204,12 +226,22 @@ function setupWindowController(windowPool, layoutManager, movementManager) {
             const wasResizable = senderWindow.isResizable();
             if (!wasResizable) senderWindow.setResizable(true);
 
-            movementManager.animateWindowBounds(senderWindow, newBounds, {
-                onComplete: () => {
-                    if (!wasResizable) senderWindow.setResizable(false);
-                    updateChildWindowLayouts(true);
-                }
-            });
+            // While a response streams, every chunk lands here. Animating each one starts a
+            // timed tween that the next chunk cancels part-way, so across a dozen chunks the
+            // window never settles - it is in continuous motion, which is what makes a streaming
+            // answer unreadable. Applying the bounds instantly instead lets it grow in place.
+            if (animated) {
+                movementManager.animateWindowBounds(senderWindow, newBounds, {
+                    onComplete: () => {
+                        if (!wasResizable) senderWindow.setResizable(false);
+                        updateChildWindowLayouts(true);
+                    }
+                });
+            } else {
+                senderWindow.setBounds(newBounds);
+                if (!wasResizable) senderWindow.setResizable(false);
+                updateChildWindowLayouts(false);
+            }
         }
     });
 }
@@ -354,22 +386,28 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
         return;
     }
 
-    if (name === 'listen' || name === 'ask') {
+    if (FEATURE_WINDOW_NAMES.includes(name)) {
         const win = windowPool.get(name);
-        const otherName = name === 'listen' ? 'ask' : 'listen';
-        const otherWin = windowPool.get(otherName);
-        const isOtherWinVisible = otherWin && !otherWin.isDestroyed() && otherWin.isVisible();
-        
+
         const ANIM_OFFSET_X = 50;
         const ANIM_OFFSET_Y = 20;
 
-        const finalVisibility = {
-            listen: (name === 'listen' && shouldBeVisible) || (otherName === 'listen' && isOtherWinVisible),
-            ask: (name === 'ask' && shouldBeVisible) || (otherName === 'ask' && isOtherWinVisible),
+        // Start from what is actually visible right now and apply only the requested change.
+        // The previous version enumerated exactly listen and ask and derived one from the other,
+        // so any third window was omitted from the layout whenever either of those was shown or
+        // hidden - it would have been left wherever it happened to be.
+        const finalVisibility = collectVisibleFeatureWindows();
+        if (shouldBeVisible) finalVisibility[name] = true;
+        else delete finalVisibility[name];
+
+        // Each window slides in from the side it lives on: listen from the left, pinned from the
+        // right, ask from above since it sits in the middle.
+        const applyEntryOffset = (pos) => {
+            if (name === 'listen') pos.x -= ANIM_OFFSET_X;
+            else if (name === 'ask-pinned') pos.x += ANIM_OFFSET_X;
+            else pos.y -= ANIM_OFFSET_Y;
+            return pos;
         };
-        if (!shouldBeVisible) {
-            finalVisibility[name] = false;
-        }
 
         const targetLayout = layoutManager.calculateFeatureWindowLayout(finalVisibility);
 
@@ -378,9 +416,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             const targetBounds = targetLayout[name];
             if (!targetBounds) return;
 
-            const startPos = { ...targetBounds };
-            if (name === 'listen') startPos.x -= ANIM_OFFSET_X;
-            else if (name === 'ask') startPos.y -= ANIM_OFFSET_Y;
+            const startPos = applyEntryOffset({ ...targetBounds });
 
             win.setOpacity(0);
             win.setBounds(startPos);
@@ -393,9 +429,7 @@ async function handleWindowVisibilityRequest(windowPool, layoutManager, movement
             if (!win || !win.isVisible()) return;
 
             const currentBounds = win.getBounds();
-            const targetPos = { ...currentBounds };
-            if (name === 'listen') targetPos.x -= ANIM_OFFSET_X;
-            else if (name === 'ask') targetPos.y -= ANIM_OFFSET_Y;
+            const targetPos = applyEntryOffset({ ...currentBounds });
 
             movementManager.fade(win, { to: 0, onComplete: () => win.hide() });
             movementManager.animateWindowPosition(win, targetPos);
@@ -526,6 +560,39 @@ function createFeatureWindows(header, namesToCreate) {
                 break;
             }
 
+            // A read-only snapshot of one Ask answer, kept beside the live Ask window so it can
+            // be referenced while asking further questions.
+            //
+            // Width matches Ask deliberately. It was 400 so that listen + ask + pinned came to
+            // 1416px and fit a 14" laptop with no overflow policy, but 400px proved too narrow to
+            // actually read, which defeats the purpose of a reference window. At 600 the row is
+            // 1616px: fine on the 2560px external monitor in use, and wider than a 1512px laptop
+            // panel, where solveRow keeps Ask fully visible and lets the outer windows run off.
+            // Tracked as a known limitation in memory-bank/plan-pinned-ask-window.md.
+            case 'ask-pinned': {
+                const pinned = new BrowserWindow({ ...commonChildOptions, width: 600 });
+                pinned.setContentProtection(isContentProtectionOn);
+                pinned.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+                if (process.platform === 'darwin') {
+                    pinned.setWindowButtonVisibility(false);
+                }
+                const pinnedLoadOptions = { query: { view: 'ask-pinned' } };
+                if (!shouldUseLiquidGlass) {
+                    pinned.loadFile(path.join(__dirname, '../ui/app/content.html'), pinnedLoadOptions);
+                } else {
+                    pinnedLoadOptions.query.glass = 'true';
+                    pinned.loadFile(path.join(__dirname, '../ui/app/content.html'), pinnedLoadOptions);
+                    pinned.webContents.once('did-finish-load', () => {
+                        const viewId = liquidGlass.addView(pinned.getNativeWindowHandle());
+                        if (viewId !== -1) {
+                            liquidGlass.unstable_setVariant(viewId, liquidGlass.GlassMaterialVariant.bubbles);
+                        }
+                    });
+                }
+                windowPool.set('ask-pinned', pinned);
+                break;
+            }
+
             // settings
             case 'settings': {
                 const settings = new BrowserWindow({ ...commonChildOptions, width:240, maxHeight:400, parent:undefined });
@@ -605,10 +672,10 @@ function createFeatureWindows(header, namesToCreate) {
     } else if (typeof namesToCreate === 'string') {
         createFeatureWindow(namesToCreate);
     } else {
-        createFeatureWindow('listen');
-        createFeatureWindow('ask');
-        createFeatureWindow('settings');
-        createFeatureWindow('shortcut-settings');
+        // Single source of truth. This list was previously spelled out here AND at the call site
+        // that passes an explicit array, so adding a window to one left the other silently short
+        // - which is exactly how 'ask-pinned' ended up never being created.
+        ALL_CHILD_WINDOW_NAMES.forEach(name => createFeatureWindow(name));
     }
 }
 
@@ -720,7 +787,7 @@ function createWindows() {
     setupWindowController(windowPool, layoutManager, movementManager);
 
     if (currentHeaderState === 'main') {
-        createFeatureWindows(header, ['listen', 'ask', 'settings', 'shortcut-settings']);
+        createFeatureWindows(header, ALL_CHILD_WINDOW_NAMES);
     }
 
     header.setContentProtection(isContentProtectionOn);
@@ -810,4 +877,5 @@ module.exports = {
     getHeaderPosition,
     moveHeaderTo,
     adjustWindowHeight,
+    nudgeWindow,
 };

@@ -156,6 +156,81 @@ class AskService {
         }
     }
 
+    /**
+     * Pin the answer currently on screen into the separate read-only window, or unpin it.
+     *
+     * A snapshot, not a live view: askService broadcasts ask:stateUpdate only to the 'ask' window,
+     * so the pinned copy is frozen by construction rather than by a flag that could be missed.
+     */
+    togglePinnedAnswer() {
+        const pool = getWindowPool();
+        const pinnedWindow = pool?.get('ask-pinned');
+        if (!pinnedWindow || pinnedWindow.isDestroyed()) {
+            console.warn('[AskService] pinned window unavailable');
+            return { success: false, error: 'pinned window unavailable' };
+        }
+
+        if (pinnedWindow.isVisible()) {
+            // Unpin discards the answer as well as hiding the window. Hiding alone left the old
+            // answer resident in a hidden window, so the pin held stale content that only got
+            // replaced on the NEXT pin - two presses to swap one reference, with the first
+            // appearing to do nothing. Clearing makes the pair symmetric: pin captures what is
+            // on screen, unpin throws it away.
+            //
+            // Cleared on the window's own 'hide' event rather than immediately, so the content
+            // does not blank out while the window is still fading.
+            pinnedWindow.once('hide', () => {
+                if (!pinnedWindow.isDestroyed()) {
+                    pinnedWindow.webContents.send('ask:pinnedContent', { question: '', response: '' });
+                }
+            });
+            internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: false });
+            console.log('[AskService] answer unpinned and discarded');
+            return { success: true, pinned: false };
+        }
+
+        // Nothing to pin is a no-op rather than an empty window: an empty pin would take screen
+        // space and give the user something else to dismiss for no benefit.
+        if (!this.state.currentResponse || !this.state.currentResponse.trim()) {
+            console.log('[AskService] nothing to pin -- no answer on screen');
+            return { success: false, error: 'no answer to pin' };
+        }
+
+        // Refused while the answer is still arriving. Pinning now would capture a partial
+        // answer, and closing the live window afterwards aborts the stream that would have
+        // completed it - so the user would end up with a truncated pin and no way back to the
+        // rest of it. Waiting a moment costs nothing; losing the tail of an answer does not.
+        if (this.state.isStreaming || this.state.isLoading) {
+            console.log('[AskService] not pinning -- the answer is still streaming');
+            return { success: false, error: 'answer still streaming' };
+        }
+
+        // The window is created hidden at startup, so it is normally loaded long before the
+        // first pin - but pinning immediately after launch would otherwise send the snapshot to
+        // a renderer that has not yet subscribed, leaving a pinned window that is simply empty.
+        const snapshot = {
+            question: this.state.currentQuestion,
+            response: this.state.currentResponse,
+        };
+        if (pinnedWindow.webContents.isLoading()) {
+            pinnedWindow.webContents.once('did-finish-load', () => {
+                if (!pinnedWindow.isDestroyed()) pinnedWindow.webContents.send('ask:pinnedContent', snapshot);
+            });
+        } else {
+            pinnedWindow.webContents.send('ask:pinnedContent', snapshot);
+        }
+        internalBridge.emit('window:requestVisibility', { name: 'ask-pinned', visible: true });
+
+        // Close the live window: the same answer in two places is duplicated information taking
+        // twice the screen, and the pin has already captured it. Shown first, then closed, so
+        // there is never a frame with neither on screen. Safe to abort here because streaming
+        // was refused above, so there is no in-flight response to lose.
+        this.closeAskWindow();
+
+        console.log('[AskService] answer pinned, live Ask window closed');
+        return { success: true, pinned: true };
+    }
+
     async toggleAskButton(inputScreenOnly = false) {
         const askWindow = getWindowPool()?.get('ask');
 

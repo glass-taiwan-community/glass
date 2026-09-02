@@ -152,13 +152,15 @@ contextBridge.exposeInMainWorld('api', {
   askView: {
     // Window Management
     closeAskWindow: () => ipcRenderer.invoke('ask:closeAskWindow'),
-    adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    adjustWindowHeight: (winName, height, animated = true) => ipcRenderer.invoke('adjust-window-height', { winName, height, animated }),
     
     // Message Handling
     sendMessage: (text) => ipcRenderer.invoke('ask:sendQuestionFromAsk', text),
 
     // Listeners
     onAskStateUpdate: (callback) => ipcRenderer.on('ask:stateUpdate', callback),
+    onPinnedContent: (callback) => ipcRenderer.on('ask:pinnedContent', callback),
+    removeOnPinnedContent: (callback) => ipcRenderer.removeListener('ask:pinnedContent', callback),
     removeOnAskStateUpdate: (callback) => ipcRenderer.removeListener('ask:stateUpdate', callback),
 
     onAskStreamError: (callback) => ipcRenderer.on('ask-response-stream-error', callback),
@@ -177,7 +179,7 @@ contextBridge.exposeInMainWorld('api', {
   // src/ui/listen/ListenView.js
   listenView: {
     // Window Management
-    adjustWindowHeight: (winName, height) => ipcRenderer.invoke('adjust-window-height', { winName, height }),
+    adjustWindowHeight: (winName, height, animated = true) => ipcRenderer.invoke('adjust-window-height', { winName, height, animated }),
     
     // Listeners
     onSessionStateChanged: (callback) => ipcRenderer.on('session-state-changed', callback),

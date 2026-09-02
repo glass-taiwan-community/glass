@@ -1,6 +1,7 @@
 const { globalShortcut, screen } = require('electron');
 const shortcutsRepository = require('./repositories');
 const internalBridge = require('../../bridge/internalBridge');
+const holdMoveService = require('./holdMoveService');
 const askService = require('../ask/askService');
 
 // Actions that were shipped as keybinds but never implemented. They are filtered out of
@@ -8,7 +9,10 @@ const askService = require('../ask/askService');
 // the shortcut editor. previousResponse/nextResponse default to Cmd+[ / Cmd+], which are
 // browser back/forward -- registering them stole those keys system-wide to drive handlers
 // that do not exist. Restore an entry here once the feature behind it is actually built.
-const RETIRED_ACTIONS = new Set(['previousResponse', 'nextResponse']);
+// Actions whose saved keybinds must be dropped rather than merged. Without this a binding that
+// still exists in the user's database keeps claiming its accelerator, and a new action given the
+// same one silently loses the race - globalShortcut refuses a duplicate.
+const RETIRED_ACTIONS = new Set(['previousResponse', 'nextResponse', 'edgeSnapUp', 'edgeSnapDown']);
 
 
 class ShortcutsService {
@@ -83,11 +87,20 @@ class ShortcutsService {
             // Deliberately not bare Escape: a global shortcut would take Escape from every
             // other application, breaking dialogs, menus and fullscreen everywhere.
             closeAsk: isMac ? 'Cmd+Alt+\\' : 'Ctrl+Alt+\\',
+            // Deliberately NOT a second press of closeAsk. The pinned answer is the one the user
+            // kept on purpose and the live one is disposable, so closing them with the same
+            // gesture would put one extra keypress between the user and losing the deliberate
+            // one - with no way to tell, mid-conversation, which window the first press closed.
+            togglePinnedAnswer: isMac ? 'Cmd+Alt+P' : 'Ctrl+Alt+P',
             toggleListenSession: isMac ? 'Cmd+Alt+L' : 'Ctrl+Alt+L',
             edgeSnapLeft: isMac ? 'Cmd+Shift+Alt+Left' : 'Ctrl+Shift+Alt+Left',
             edgeSnapRight: isMac ? 'Cmd+Shift+Alt+Right' : 'Ctrl+Shift+Alt+Right',
-            edgeSnapUp: isMac ? 'Cmd+Shift+Alt+Up' : 'Ctrl+Shift+Alt+Up',
-            edgeSnapDown: isMac ? 'Cmd+Shift+Alt+Down' : 'Ctrl+Shift+Alt+Down',
+            // Reclaimed from edgeSnapUp/edgeSnapDown. Every arrow-key modifier combination was
+            // already taken - Cmd, Cmd+Shift, Cmd+Alt and Cmd+Shift+Alt - so a third scrollable
+            // window had nowhere to go. Vertical edge snapping was the least used of the
+            // candidates; horizontal snapping, which is the common one, is untouched.
+            scrollPinnedUp: isMac ? 'Cmd+Shift+Alt+Up' : 'Ctrl+Shift+Alt+Up',
+            scrollPinnedDown: isMac ? 'Cmd+Shift+Alt+Down' : 'Ctrl+Shift+Alt+Down',
         };
     }
 
@@ -215,6 +228,12 @@ class ShortcutsService {
             return;
         }
 
+        holdMoveService.init();
+
+        const registered = [];
+        const failed = [];
+        const unhandled = [];
+
         for (const action in keybinds) {
             const accelerator = keybinds[action];
             if (!accelerator) continue;
@@ -273,17 +292,47 @@ class ShortcutsService {
                     // rather than left running behind a hidden window.
                     callback = () => askService.closeAskWindow();
                     break;
+                case 'scrollPinnedUp':
+                case 'scrollPinnedDown': {
+                    // Same channels the live Ask window listens on - the pinned view is the same
+                    // component, so it already handles them.
+                    const channel = action === 'scrollPinnedUp' ? 'ask:scrollResponseUp' : 'ask:scrollResponseDown';
+                    callback = () => {
+                        const pinnedWindow = this.windowPool.get('ask-pinned');
+                        if (pinnedWindow && !pinnedWindow.isDestroyed() && pinnedWindow.isVisible()) {
+                            pinnedWindow.webContents.send(channel);
+                        }
+                    };
+                    break;
+                }
+                case 'togglePinnedAnswer':
+                    // One key for both directions: pinning was deliberate, so unpinning gets its
+                    // own deliberate action rather than being reachable by repeating a close.
+                    callback = () => askService.togglePinnedAnswer();
+                    break;
                 case 'moveUp':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'up' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('up'); };
                     break;
                 case 'moveDown':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'down' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('down'); };
                     break;
                 case 'moveLeft':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'left' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('left'); };
                     break;
                 case 'moveRight':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveStep', { direction: 'right' }); };
+                    // holdMoveService performs the same single step, then keeps moving while the key
+                    // stays down. Falls back to exactly this one step when the keyboard hook is not
+                    // available.
+                    callback = () => { if (header && header.isVisible()) holdMoveService.begin('right'); };
                     break;
                 // Edge snap jumps the header to a screen edge. moveToEdge already handles
                 // all four directions; these are the bindings that reach it.
@@ -293,12 +342,7 @@ class ShortcutsService {
                 case 'edgeSnapRight':
                     callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'right' }); };
                     break;
-                case 'edgeSnapUp':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'up' }); };
-                    break;
-                case 'edgeSnapDown':
-                    callback = () => { if (header && header.isVisible()) internalBridge.emit('window:moveToEdge', { direction: 'down' }); };
-                    break;
+
                 case 'toggleClickThrough':
                      callback = () => {
                         this.mouseEventsIgnored = !this.mouseEventsIgnored;
@@ -317,15 +361,34 @@ class ShortcutsService {
                     break;
             }
             
-            if (callback) {
-                try {
-                    globalShortcut.register(accelerator, callback);
-                } catch(e) {
-                    console.error(`[Shortcuts] Failed to register shortcut for "${action}" (${accelerator}):`, e.message);
-                }
+            if (!callback) {
+                // An action with a keybind but no case here is registered nowhere and does
+                // nothing. Silence made that indistinguishable from a working shortcut.
+                unhandled.push(action);
+                continue;
+            }
+
+            try {
+                // register() returns false when the accelerator is refused - most often because
+                // another application already holds it - and does NOT throw. Ignoring the return
+                // value made a failed registration completely silent, which is the same failure
+                // shape as a shortcut that was never added: nothing happens, and nothing says why.
+                const ok = globalShortcut.register(accelerator, callback);
+                if (ok) registered.push(`${action}=${accelerator}`);
+                else failed.push(`${action}=${accelerator}`);
+            } catch(e) {
+                failed.push(`${action}=${accelerator}`);
+                console.error(`[Shortcuts] Failed to register shortcut for "${action}" (${accelerator}):`, e.message);
             }
         }
-        console.log('[Shortcuts] All shortcuts have been registered.');
+
+        console.log(`[Shortcuts] Registered ${registered.length}: ${registered.join(', ')}`);
+        if (failed.length) {
+            console.warn(`[Shortcuts] REFUSED by the OS (already taken by another app?): ${failed.join(', ')}`);
+        }
+        if (unhandled.length) {
+            console.warn(`[Shortcuts] Keybind defined but no handler, so it does nothing: ${unhandled.join(', ')}`);
+        }
     }
 
     unregisterAll() {
