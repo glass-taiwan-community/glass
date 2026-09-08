@@ -29,6 +29,45 @@ export interface Session {
   ended_at?: number;
   sync_state: 'clean' | 'dirty';
   updated_at: number;
+
+  // Content-derived fields the Activity cards need to be identifiable. Optional because the
+  // Firebase listing cannot afford to compute them (summaries live in per-session
+  // sub-collections), so every consumer must render correctly without them.
+  tldr?: string | null;
+  /** 1 when `tldr` came from the whole-session summary, 0 when it came from the live snapshot. */
+  summary_is_final?: 0 | 1;
+  transcript_count?: number;
+  ask_count?: number;
+  /** Seconds from the session's first record to its last. See `content_span` in the repository. */
+  content_span?: number | null;
+}
+
+/** A session that matched a search, carrying the text that made it match. */
+export interface SessionSearchResult extends Session {
+  snippet?: string | null;
+  snippet_source?: 'ask' | 'transcript' | 'summary' | 'title' | null;
+}
+
+/**
+ * `scope` reports how much was actually searched. The SQLite store searches content; Firebase can
+ * only manage titles. Surfacing this is the point - the previous search failed silently, which
+ * taught users their data was not there.
+ */
+export interface SessionSearchResponse {
+  scope: 'content' | 'title';
+  results: SessionSearchResult[];
+}
+
+/** One session's action items, for the cross-session review. */
+export interface SessionActionItems {
+  session_id: string;
+  title: string;
+  started_at: number;
+  session_type: string;
+  /** Only final summaries reach this view - the live `action_json` is not action items. */
+  final_action_json: string | null;
+  final_generated_at: number | null;
+  action_done_json: string | null;
 }
 
 export interface Transcript {
@@ -76,6 +115,8 @@ export interface Summary {
   final_action_json?: string | null;
   final_model?: string | null;
   final_generated_at?: number | null;
+  /** JSON array of the action-item texts the user has ticked off. Keyed by text, not index. */
+  action_done_json?: string | null;
 }
 
 export interface PromptPreset {
@@ -313,25 +354,49 @@ export const apiCall = async (path: string, options: RequestInit = {}) => {
 };
 
 
-export const searchConversations = async (query: string): Promise<Session[]> => {
+export const searchConversations = async (query: string): Promise<SessionSearchResponse> => {
   if (!query.trim()) {
-    return [];
+    return { scope: 'content', results: [] };
   }
 
   if (isFirebaseMode()) {
     const sessions = await getSessions();
-    return sessions.filter(session => 
-      session.title.toLowerCase().includes(query.toLowerCase())
-    );
-  } else {
-    const response = await apiCall(`/api/conversations/search?q=${encodeURIComponent(query)}`, {
-      method: 'GET',
-    });
-    if (!response.ok) {
-      throw new Error('Failed to search conversations');
-    }
-    return response.json();
+    return {
+      scope: 'title',
+      results: sessions
+        .filter(session => session.title.toLowerCase().includes(query.toLowerCase()))
+        .map(session => ({ ...session, snippet: session.title, snippet_source: 'title' as const })),
+    };
   }
+
+  const response = await apiCall(`/api/conversations/search?q=${encodeURIComponent(query)}`, {
+    method: 'GET',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to search conversations');
+  }
+  return response.json();
+};
+
+/** Action items from every session that produced any, newest session first. */
+export const getActionItems = async (): Promise<SessionActionItems[]> => {
+  const response = await apiCall(`/api/conversations/actions`, { method: 'GET' });
+  if (!response.ok) throw new Error('Failed to fetch action items');
+  return response.json();
+};
+
+/**
+ * Replaces the set of completed action items for one session.
+ *
+ * Sends the whole set rather than a single toggle: the server stores item *texts*, so a
+ * full-set write stays correct even if the summary was regenerated since the page loaded.
+ */
+export const setActionItemsDone = async (sessionId: string, done: string[]): Promise<void> => {
+  const response = await apiCall(`/api/conversations/${sessionId}/actions`, {
+    method: 'PUT',
+    body: JSON.stringify({ done }),
+  });
+  if (!response.ok) throw new Error('Failed to update action items');
 };
 
 export const getSessions = async (): Promise<Session[]> => {

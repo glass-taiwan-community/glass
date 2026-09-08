@@ -36,6 +36,11 @@ const sessionRepositoryAdapter = {
         return getBaseRepository().getAllByUserId(uid);
     },
 
+    searchSessions: (query, limit) => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().searchSessions(uid, query, limit);
+    },
+
     updateTitle: (id, title) => getBaseRepository().updateTitle(id, title),
     
     deleteWithRelatedData: (id) => getBaseRepository().deleteWithRelatedData(id),

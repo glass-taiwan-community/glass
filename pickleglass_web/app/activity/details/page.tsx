@@ -1,20 +1,26 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useRedirectIfNotAuth } from '@/utils/auth'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { ChevronDown, ChevronRight, HelpCircle } from 'lucide-react'
 import {
   UserProfile,
   SessionDetails,
   Transcript,
-  AiMessage,
   getSessionDetails,
   deleteSession,
+  setActionItemsDone,
   getApiOrigin,
 } from '@/utils/api'
+import { actionItemsFrom, buildTimeline, parseList } from '@/utils/sessionContent'
 
-type ConversationItem = (Transcript & { type: 'transcript' }) | (AiMessage & { type: 'ai_message' });
+/** Runs at least this long start collapsed. Shorter ones are cheaper to show than to hide. */
+const COLLAPSE_RUN_AT = 4
+
+const clock = (seconds: number) =>
+  new Date(seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 const Section = ({ title, children }: { title: string, children: React.ReactNode }) => (
     <div className="mb-8">
@@ -25,6 +31,46 @@ const Section = ({ title, children }: { title: string, children: React.ReactNode
     </div>
 );
 
+function TranscriptRun({ lines }: { lines: Transcript[] }) {
+  const [expanded, setExpanded] = useState(lines.length < COLLAPSE_RUN_AT)
+
+  if (expanded) {
+    return (
+      <div className="border-l-2 border-gray-200 pl-4 space-y-1.5">
+        {lines.length >= COLLAPSE_RUN_AT && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="flex items-center text-xs text-gray-500 hover:text-gray-700 mb-1"
+          >
+            <ChevronDown className="h-3.5 w-3.5 mr-1" />
+            Hide {lines.length} lines
+          </button>
+        )}
+        {lines.map(line => (
+          <p key={line.id} className="text-sm text-gray-600">
+            <span className="text-gray-400 tabular-nums mr-2">{clock(line.start_at)}</span>
+            <span className="font-medium capitalize text-gray-700">{line.speaker}: </span>
+            {line.text}
+          </p>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setExpanded(true)}
+      className="flex items-start w-full text-left border-l-2 border-gray-200 pl-4 py-1 group"
+    >
+      <ChevronRight className="h-3.5 w-3.5 mr-1 mt-0.5 text-gray-400 group-hover:text-gray-600 shrink-0" />
+      <span className="text-sm text-gray-500 group-hover:text-gray-700">
+        {lines.length} lines of conversation
+        <span className="text-gray-400"> — {lines[0].text.slice(0, 80)}…</span>
+      </span>
+    </button>
+  )
+}
+
 function SessionDetailsContent() {
   const userInfo = useRedirectIfNotAuth() as UserProfile | null;
   const [sessionDetails, setSessionDetails] = useState<SessionDetails | null>(null);
@@ -33,6 +79,7 @@ function SessionDetailsContent() {
   const sessionId = searchParams.get('sessionId');
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [doneActions, setDoneActions] = useState<string[]>([]);
 
   useEffect(() => {
     if (userInfo && sessionId) {
@@ -41,6 +88,7 @@ function SessionDetailsContent() {
         try {
           const details = await getSessionDetails(sessionId as string);
           setSessionDetails(details);
+          setDoneActions(parseList(details?.summary?.action_done_json));
         } catch (error) {
           console.error('Failed to load session details:', error);
         } finally {
@@ -50,6 +98,11 @@ function SessionDetailsContent() {
       fetchDetails();
     }
   }, [userInfo, sessionId]);
+
+  const timeline = useMemo(
+    () => buildTimeline(sessionDetails?.transcripts ?? [], sessionDetails?.ai_messages ?? []),
+    [sessionDetails]
+  );
 
   const handleDelete = async () => {
     if (!sessionId) return;
@@ -62,6 +115,27 @@ function SessionDetailsContent() {
       alert('Failed to delete activity.');
       setDeleting(false);
       console.error(error);
+    }
+  };
+
+  /**
+   * Toggles one action item. Updates optimistically so the checkbox never lags the click, and
+   * rolls back on failure - a checkbox that silently forgets is worse than one that refuses.
+   */
+  const toggleAction = async (action: string) => {
+    if (!sessionId) return;
+    const previous = doneActions;
+    const next = previous.includes(action)
+      ? previous.filter(item => item !== action)
+      : [...previous, action];
+
+    setDoneActions(next);
+    try {
+      await setActionItemsDone(sessionId, next);
+    } catch (error) {
+      console.error('Failed to save action items:', error);
+      setDoneActions(previous);
+      alert('Could not save that change.');
     }
   };
 
@@ -89,8 +163,6 @@ function SessionDetailsContent() {
         </div>
     )
   }
-  
-  const askMessages = sessionDetails.ai_messages || [];
 
   return (
     <div className="min-h-screen bg-[#FDFCF9] text-gray-800">
@@ -144,12 +216,12 @@ function SessionDetailsContent() {
                             action_json: sessionDetails.summary.action_json,
                           }
 
-                    const parse = (json?: string | null): string[] => {
-                        if (!json) return []
-                        try { return JSON.parse(json) } catch { return [] }
-                    }
-                    const bullets = parse(view.bullet_json)
-                    const actions = parse(view.action_json)
+                    const bullets = parseList(view.bullet_json)
+                    // Action items exist only in the final artifact. The live snapshot's
+                    // action_json holds live-assist affordances ("✨ What should I say next?"),
+                    // which summaryService documents as meaningless in a durable record - showing
+                    // them under an "Action Items" heading invents commitments that were never made.
+                    const actions = isFinal ? actionItemsFrom(view.action_json) : []
 
                     return (
                     <Section title="Summary">
@@ -179,55 +251,77 @@ function SessionDetailsContent() {
                             </div>
                         }
 
+                        {/* Checkable, because an extracted commitment that cannot be ticked off is
+                            an insight with no exit - the user has to copy it somewhere else to act
+                            on it, and most never will. */}
                         {actions.length > 0 &&
                             <div className="mt-4">
                                 <h3 className="font-semibold text-gray-700 mb-2">Action Items:</h3>
-                                <ul className="list-disc list-inside space-y-1 text-gray-600">
-                                    {actions.map((action: string, index: number) => (
-                                        <li key={index}>{action}</li>
-                                    ))}
+                                <ul className="space-y-1.5">
+                                    {actions.map((action: string, index: number) => {
+                                        const done = doneActions.includes(action)
+                                        return (
+                                            <li key={index}>
+                                                <label className="flex items-start gap-2 cursor-pointer group">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={done}
+                                                        onChange={() => toggleAction(action)}
+                                                        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    <span className={done ? 'text-gray-400 line-through' : 'text-gray-700 group-hover:text-gray-900'}>
+                                                        {action}
+                                                    </span>
+                                                </label>
+                                            </li>
+                                        )
+                                    })}
                                 </ul>
                             </div>
                         }
                     </Section>
                     )
                 })()}
-                
-                {sessionDetails.transcripts && sessionDetails.transcripts.length > 0 && (
-                    <Section title="Listen: Transcript">
-                        <div className="space-y-3">
-                            {sessionDetails.transcripts.map((item) => (
-                                <p key={item.id} className="text-gray-700">
-                                    <span className="font-semibold capitalize">{item.speaker}: </span>
-                                    {item.text}
-                                </p>
-                            ))}
-                        </div>
-                    </Section>
-                )}
-                
-                {askMessages.length > 0 && (
-                    <Section title="Ask: Q&A">
+
+                {timeline.length > 0 && (
+                    <Section title="Timeline">
                         <div className="space-y-4">
-                            {askMessages.map((item) => (
-                                <div key={item.id} className={`p-3 rounded-lg ${item.role === 'user' ? 'bg-gray-100' : 'bg-blue-50'}`}>
-                                    <p className="font-semibold capitalize text-sm text-gray-600 mb-1">{item.role === 'user' ? 'You' : 'AI'}</p>
-                                    {item.content
-                                        ? <p className="text-gray-800 whitespace-pre-wrap">{item.content}</p>
-                                        : (item as AiMessage).image_path
-                                            ? <p className="text-gray-400 italic text-sm">Screen capture</p>
-                                            : null}
-                                    {(item as AiMessage).image_path && (
-                                        <a href={`${getApiOrigin()}/api/ask-screenshots/${(item as AiMessage).image_path}`} target="_blank" rel="noopener noreferrer">
-                                            <img
-                                                src={`${getApiOrigin()}/api/ask-screenshots/${(item as AiMessage).image_path}`}
-                                                alt="Screen capture at time of question"
-                                                className="mt-2 max-h-48 rounded border border-gray-200 hover:opacity-90 transition-opacity"
-                                            />
-                                        </a>
-                                    )}
-                                </div>
-                            ))}
+                            {timeline.map((entry, index) => {
+                                if (entry.kind === 'transcript') {
+                                    return <TranscriptRun key={`run-${entry.at}-${index}`} lines={entry.lines} />
+                                }
+
+                                const message = entry.message
+                                const isUser = message.role === 'user'
+                                return (
+                                    <div
+                                        key={message.id}
+                                        className={`rounded-lg p-3 ${isUser ? 'bg-gray-100 border border-gray-200' : 'bg-blue-50 border border-blue-100'}`}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1 text-sm font-semibold text-gray-600">
+                                            {isUser && <HelpCircle className="h-4 w-4 text-gray-500" />}
+                                            <span>{isUser ? 'You asked' : 'AI'}</span>
+                                            <span className="font-normal text-xs text-gray-400 tabular-nums">
+                                                {clock(message.sent_at)}
+                                            </span>
+                                        </div>
+                                        {message.content
+                                            ? <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
+                                            : message.image_path
+                                                ? <p className="text-gray-400 italic text-sm">Screen capture</p>
+                                                : null}
+                                        {message.image_path && (
+                                            <a href={`${getApiOrigin()}/api/ask-screenshots/${message.image_path}`} target="_blank" rel="noopener noreferrer">
+                                                <img
+                                                    src={`${getApiOrigin()}/api/ask-screenshots/${message.image_path}`}
+                                                    alt="Screen capture at time of question"
+                                                    className="mt-2 max-h-48 rounded border border-gray-200 hover:opacity-90 transition-opacity"
+                                                />
+                                            </a>
+                                        )}
+                                    </div>
+                                )
+                            })}
                         </div>
                     </Section>
                 )}
@@ -250,4 +344,4 @@ export default function SessionDetailsPage() {
       <SessionDetailsContent />
     </Suspense>
   );
-} 
+}

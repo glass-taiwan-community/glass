@@ -74,7 +74,13 @@ const LATEST_SCHEMA = {
             { name: 'final_bullet_json', type: 'TEXT' },
             { name: 'final_action_json', type: 'TEXT' },
             { name: 'final_model', type: 'TEXT' },
-            { name: 'final_generated_at', type: 'INTEGER' }
+            { name: 'final_generated_at', type: 'INTEGER' },
+            // JSON array of the action-item *texts* the user has ticked off. Keyed by text
+            // rather than by index on purpose: the live summary is regenerated every 5 turns,
+            // which reorders and renumbers action_json, so an index-keyed record would silently
+            // start pointing at a different commitment. Text survives regeneration; an item
+            // whose wording changes simply reverts to unchecked, which is the safe direction.
+            { name: 'action_done_json', type: 'TEXT' }
         ]
     },
     prompt_presets: {

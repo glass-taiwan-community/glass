@@ -371,7 +371,21 @@ function setupWebDataHandlers() {
                     }
                     result = { id };
                     break;
-                
+                case 'search-sessions':
+                    // Adapter injects UID. Returns { scope, results } - scope says whether the
+                    // backing store could search content or only titles.
+                    result = await sessionRepository.searchSessions(payload?.query, payload?.limit);
+                    break;
+
+                // ACTION ITEMS
+                case 'get-action-items':
+                    // Adapter injects UID
+                    result = await summaryRepository.getAllActionItems();
+                    break;
+                case 'update-action-done':
+                    result = await summaryRepository.saveActionDone(payload.sessionId, payload.done);
+                    break;
+
                 // USER
                 case 'get-user-profile':
                     // Adapter injects UID
