@@ -62,20 +62,20 @@ export default function PreContextPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-gray-500">Loading...</div>
+        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
         <div className="px-8 pt-8 pb-6">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-sm text-gray-500 mb-2">Session Setup</p>
-              <h1 className="text-3xl font-bold text-gray-900">Pre-Context</h1>
-              <p className="text-sm text-gray-500 mt-1">Preload structured context before your session</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Session Setup</p>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Pre-Context</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Preload structured context before your session</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -95,36 +95,36 @@ export default function PreContextPage() {
             </div>
           </div>
           {statusMessage && (
-            <p className={`mt-3 text-sm ${statusMessage.includes('Failed') ? 'text-red-600' : 'text-green-600'}`}>
+            <p className={`mt-3 text-sm ${statusMessage.includes('Failed') ? 'text-red-600 dark:text-red-400' : 'text-green-600'}`}>
               {statusMessage}
             </p>
           )}
         </div>
       </div>
 
-      <div className="flex-1 bg-white overflow-auto">
+      <div className="flex-1 bg-white dark:bg-gray-900 overflow-auto">
         <div className="px-8 py-6 flex flex-col gap-4 h-full">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
             <input
               type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder="e.g., Today's Meeting Agenda"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
 
           <div className="flex flex-col flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Context</label>
-            <p className="text-xs text-gray-500 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Context</label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
               Enter structured content such as meeting agenda items, previous action items, or key participants.
             </p>
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
               placeholder={`- Meeting agenda item 1\n- Previous action item\n- Key participants: Alice, Bob\n- Goals for this session`}
-              className="flex-1 w-full px-3 py-3 border border-gray-300 rounded-md text-sm text-gray-900 font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              className="flex-1 w-full px-3 py-3 border border-gray-300 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               style={{ minHeight: '300px' }}
             />
           </div>

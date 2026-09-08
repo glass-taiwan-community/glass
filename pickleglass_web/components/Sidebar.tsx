@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useState, createElement, useEffect, useMemo, useCallback, memo } from 'react';
-import { Search, Activity, HelpCircle, Download, ChevronDown, User, Shield, Database, CreditCard, LogOut, LucideIcon } from 'lucide-react';
+import { Search, Activity, HelpCircle, Download, ChevronDown, User, Shield, Database, CreditCard, LogOut, Sun, Moon, Monitor, LucideIcon } from 'lucide-react';
+import { ThemePreference, THEME_OPTIONS, readThemePreference, writeThemePreference, applyTheme } from '@/utils/theme';
 import { logout, UserProfile, checkApiKeyStatus } from '@/utils/api';
 import { useAuth } from '@/utils/auth';
 
@@ -140,10 +141,68 @@ const IconComponent = memo<{
         return createElement(icon as LucideIcon, { className, 'aria-hidden': true });
     }
 
-    return <Image src={icon as string} alt={alt} width={18} height={18} className={className} loading="lazy" />;
+    // dark:invert only on the image branch: the nav icons are monochrome black SVGs that would
+    // vanish on a dark sidebar. Lucide icons above take their colour from `currentColor` and are
+    // already handled by the text colour, so inverting them would turn them the wrong way.
+    return <Image src={icon as string} alt={alt} width={18} height={18} className={`${className} dark:invert`} loading="lazy" />;
 });
 
 IconComponent.displayName = 'IconComponent';
+
+const THEME_ICONS: Record<ThemePreference, LucideIcon> = { system: Monitor, light: Sun, dark: Moon };
+const THEME_LABELS: Record<ThemePreference, string> = { system: 'System', light: 'Light', dark: 'Dark' };
+
+/**
+ * Cycles System -> Light -> Dark.
+ *
+ * A cycle rather than three buttons because the sidebar collapses to 36px, where three targets do
+ * not fit and one does. The current state is named beside the icon when expanded, so the next
+ * step is never a guess.
+ */
+function ThemeToggle({ isCollapsed }: { isCollapsed: boolean }) {
+    // Starts at 'system' on both server and client so the markup matches during hydration; the
+    // stored preference is read in the effect below. The page is already themed correctly by then
+    // - the inline script in layout.tsx did that before first paint.
+    const [preference, setPreference] = useState<ThemePreference>('system');
+
+    useEffect(() => {
+        setPreference(readThemePreference());
+    }, []);
+
+    // While following the system, react to it changing: someone on macOS auto-appearance expects
+    // the page to turn dark at sunset without reloading it.
+    useEffect(() => {
+        if (preference !== 'system') return;
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const onChange = () => applyTheme('system');
+        media.addEventListener('change', onChange);
+        return () => media.removeEventListener('change', onChange);
+    }, [preference]);
+
+    const cycle = () => {
+        const next = THEME_OPTIONS[(THEME_OPTIONS.indexOf(preference) + 1) % THEME_OPTIONS.length];
+        setPreference(next);
+        writeThemePreference(next);
+        applyTheme(next);
+    };
+
+    const Icon = THEME_ICONS[preference];
+
+    return (
+        <button
+            onClick={cycle}
+            title={`Theme: ${THEME_LABELS[preference]}`}
+            aria-label={`Theme: ${THEME_LABELS[preference]}. Click to change.`}
+            className={`group flex items-center rounded-[6px] px-[12px] py-[8px] text-[13px] w-full
+                text-[#282828] dark:text-gray-200 hover:bg-[#f7f7f7] dark:hover:bg-gray-800
+                ${isCollapsed ? 'justify-center' : 'gap-x-[10px]'}
+                transition-colors ease-out focus:outline-none`}
+        >
+            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {!isCollapsed && <span className="whitespace-nowrap">{THEME_LABELS[preference]}</span>}
+        </button>
+    );
+}
 
 const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps) => {
     const pathname = usePathname();
@@ -276,13 +335,13 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
             const animationDelay = 0;
 
             const baseButtonClasses = `
-      group flex items-center rounded-[8px] px-[12px] py-[10px] text-[14px] text-[#282828] w-full relative
+      group flex items-center rounded-[8px] px-[12px] py-[10px] text-[14px] text-[#282828] dark:text-gray-200 w-full relative
       transition-colors duration-${ANIMATION_DURATION.COLOR_TRANSITION} ease-out
       focus:outline-none
     `;
 
             const getStateClasses = (isActive: boolean) =>
-                isActive ? 'bg-[#f2f2f2] text-[#282828]' : 'text-[#282828] hover:text-[#282828] hover:bg-[#f7f7f7]';
+                isActive ? 'bg-[#f2f2f2] dark:bg-gray-800 text-[#282828] dark:text-gray-200' : 'text-[#282828] dark:text-gray-200 hover:text-[#282828] hover:dark:text-gray-200 hover:bg-[#f7f7f7] dark:hover:bg-gray-800';
 
             if (item.action) {
                 return (
@@ -360,8 +419,8 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                       focus:outline-none
                                   ${
                                       pathname === subItem.href
-                                          ? 'bg-subtle-active-bg text-[#282828]'
-                                          : 'text-[#282828] hover:text-[#282828] hover:bg-[#f7f7f7]'
+                                          ? 'bg-subtle-active-bg dark:bg-gray-800 text-[#282828] dark:text-gray-200'
+                                          : 'text-[#282828] dark:text-gray-200 hover:text-[#282828] hover:dark:text-gray-200 hover:bg-[#f7f7f7] dark:hover:bg-gray-800'
                                   }
                       transition-colors duration-${ANIMATION_DURATION.COLOR_TRANSITION} ease-out
                                 `}
@@ -388,7 +447,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                                             onKeyDown={e => handleKeyDown(e, handleLogout)}
                                             className={`
                                     group flex items-center rounded-lg px-[12px] py-[8px] text-[13px] gap-x-[9px]
-                                    text-red-600 hover:text-red-700 hover:bg-[#f7f7f7] w-full 
+                                    text-red-600 dark:text-red-400 hover:text-red-700 hover:dark:text-red-300 hover:bg-[#f7f7f7] dark:hover:bg-gray-800 w-full 
                                     transition-colors duration-${ANIMATION_DURATION.COLOR_TRANSITION} ease-out
                                     focus:outline-none
                                   `}
@@ -404,7 +463,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                                             href="/login"
                                             className={`
                                     group flex items-center rounded-lg px-[12px] py-[8px] text-[13px] gap-x-[9px] 
-                                    text-[#282828] hover:text-[#282828] hover:bg-[#f7f7f7] w-full 
+                                    text-[#282828] dark:text-gray-200 hover:text-[#282828] hover:dark:text-gray-200 hover:bg-[#f7f7f7] dark:hover:bg-gray-800 w-full 
                                     transition-colors duration-${ANIMATION_DURATION.COLOR_TRANSITION} ease-out
                                     focus:outline-none
                                   `}
@@ -479,7 +538,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
 
     return (
         <aside
-            className={`flex h-full flex-col bg-white border-r py-3 px-2 border-[#e5e5e5] relative ${isCollapsed ? 'w-[60px]' : 'w-[220px]'}`}
+            className={`flex h-full flex-col bg-white dark:bg-gray-900 border-r py-3 px-2 border-[#e5e5e5] relative ${isCollapsed ? 'w-[60px]' : 'w-[220px]'}`}
             style={sidebarContainerStyle}
             role="navigation"
             aria-label="main navigation"
@@ -488,16 +547,16 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
             <header className={`group relative h-6 flex shrink-0 items-center justify-between`}>
                 {isCollapsed ? (
                     <Link href="https://pickle.com" target="_blank" rel="noopener noreferrer" className="flex items-center">
-                        <Image src="/symbol.svg" alt="Logo" width={20} height={20} className="mx-3 shrink-0" />
+                        <Image src="/symbol.svg" alt="Logo" width={20} height={20} className="mx-3 shrink-0 dark:invert" />
                         <button
                             onClick={toggleSidebar}
                             onKeyDown={e => handleKeyDown(e, toggleSidebar)}
                             className={`${
                                 isCollapsed ? '' : ''
-                            } "absolute inset-0 flex items-center justify-center text-gray-500 hover:text-gray-800 rounded-md opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-300 ease-out focus:outline-none`}
+                            } "absolute inset-0 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-800 hover:dark:text-gray-200 rounded-md opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-300 ease-out focus:outline-none`}
                             aria-label="Open sidebar"
                         >
-                            <Image src="/unfold.svg" alt="Open" width={18} height={18} className="h-4.5 w-4.5" />
+                            <Image src="/unfold.svg" alt="Open" width={18} height={18} className="h-4.5 w-4.5 dark:invert" />
                         </button>
                     </Link>
                 ) : (
@@ -508,7 +567,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                                 alt="pickleglass Logo"
                                 width={50}
                                 height={14}
-                                className="mx-3 shrink-0"
+                                className="mx-3 shrink-0 dark:invert"
                             />
                         </Link>
                         <button
@@ -516,10 +575,10 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                             onKeyDown={e => handleKeyDown(e, toggleSidebar)}
                             className={`${
                                 isCollapsed ? '' : ''
-                            } text-gray-500 hover:text-gray-800 p-1 rounded-[4px] hover:bg-[#f7f7f7] h-6 w-6 transition-colors focus:outline-none`}
+                            } text-gray-500 dark:text-gray-400 hover:text-gray-800 hover:dark:text-gray-200 p-1 rounded-[4px] hover:bg-[#f7f7f7] dark:hover:bg-gray-800 h-6 w-6 transition-colors focus:outline-none`}
                             aria-label="Close sidebar"
                         >
-                            <Image src="/unfold.svg" alt="Close" width={16} height={16} className="transform rotate-180" />
+                            <Image src="/unfold.svg" alt="Close" width={16} height={16} className="transform rotate-180 dark:invert" />
                         </button>
                     </>
                 )}
@@ -539,21 +598,23 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                     onKeyDown={e => handleKeyDown(e, toggleSidebar)}
                     className={`${
                         isCollapsed ? '' : 'opacity-0'
-                    } "absolute inset-0 flex items-center justify-center w-full h-[36px] mb-[8px] rounded-[20px] flex justify-center items-center text-gray-500 hover:text-gray-800 rounded-md scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-300 ease-out focus:outline-none`}
+                    } "absolute inset-0 flex items-center justify-center w-full h-[36px] mb-[8px] rounded-[20px] flex justify-center items-center text-gray-500 dark:text-gray-400 hover:text-gray-800 hover:dark:text-gray-200 rounded-md scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-300 ease-out focus:outline-none`}
                     aria-label="Open sidebar"
                 >
-                    <div className="w-[36px] h-[36px] flex items-center justify-center bg-[#f7f7f7] rounded-[20px]">
-                        <Image src="/unfold.svg" alt="Open" width={18} height={18} className="h-4.5 w-4.5" />
+                    <div className="w-[36px] h-[36px] flex items-center justify-center bg-[#f7f7f7] dark:bg-gray-800 rounded-[20px]">
+                        <Image src="/unfold.svg" alt="Open" width={18} height={18} className="h-4.5 w-4.5 dark:invert" />
                     </div>
                 </button>
 
                 {!isCollapsed && hasApiKey !== null && (
                     <div className="px-2.5 py-2 text-center">
-                        <span className={`text-xs px-2 py-1 rounded-full ${hasApiKey ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                        <span className={`text-xs px-2 py-1 rounded-full ${hasApiKey ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200' : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'}`}>
                             {hasApiKey ? 'Local running' : 'Pickle Free System'}
                         </span>
                     </div>
                 )}
+
+                <ThemeToggle isCollapsed={isCollapsed} />
 
                 <div className="mt-auto space-y-[0px]" role="navigation" aria-label="Additional links">
                     {bottomItems.map((item, index) => (
@@ -563,8 +624,8 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                             target="_blank"
                             rel="noopener noreferrer"
                             className={`
-                group flex items-center rounded-[6px] px-[12px] py-[8px] text-[13px] text-[#282828]
-                hover:text-[#282828] hover:bg-[#f7f7f7] ${isCollapsed ? '' : 'gap-x-[10px]'}
+                group flex items-center rounded-[6px] px-[12px] py-[8px] text-[13px] text-[#282828] dark:text-gray-200
+                hover:text-[#282828] hover:dark:text-gray-200 hover:bg-[#f7f7f7] dark:hover:bg-gray-800 ${isCollapsed ? '' : 'gap-x-[10px]'}
                 transition-colors duration-${ANIMATION_DURATION.COLOR_TRANSITION} ease-out 
                 focus:outline-none
               `}
@@ -590,7 +651,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                 </div>
 
                 <div className="mt-[0px] flex items-center w-full h-[1px] px-[4px] mt-[8px] mb-[8px]">
-                    <div className="w-full h-[1px] bg-[#d9d9d9]"></div>
+                    <div className="w-full h-[1px] bg-[#d9d9d9] dark:bg-gray-700"></div>
                 </div>
 
                 <div
@@ -605,9 +666,9 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                 >
                     <div
                         className={`
-              h-[30px] w-[30px] rounded-full border border-[#8d8d8d] flex items-center justify-center text-[#282828] text-[13px] 
+              h-[30px] w-[30px] rounded-full border border-[#8d8d8d] flex items-center justify-center text-[#282828] dark:text-gray-200 text-[13px] 
               shrink-0 cursor-pointer transition-all duration-${ANIMATION_DURATION.ICON_HOVER} 
-              hover:bg-[#f7f7f7] focus:outline-none
+              hover:bg-[#f7f7f7] dark:hover:bg-gray-800 focus:outline-none
             `}
                         title={getUserDisplayName()}
                         style={{ willChange: 'background-color, transform' }}
@@ -628,7 +689,7 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                     </div>
 
                     <div className="ml-[0px] overflow-hidden" style={getTextContainerStyle()}>
-                        <span className="block text-[13px] leading-6 text-[#282828]" style={getUniformTextStyle()}>
+                        <span className="block text-[13px] leading-6 text-[#282828] dark:text-gray-200" style={getUniformTextStyle()}>
                             {getUserDisplayName()}
                         </span>
                     </div>

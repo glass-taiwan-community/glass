@@ -110,10 +110,10 @@ export default function ActivityPage() {
 
   if (!userInfo) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
     )
@@ -141,19 +141,19 @@ export default function ActivityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="max-w-4xl mx-auto px-8 py-12">
         <div className="text-center mb-10">
-          <h1 className="text-2xl text-gray-600">
+          <h1 className="text-2xl text-gray-600 dark:text-gray-400">
             {getGreeting()}, {userInfo.display_name}
           </h1>
         </div>
         <div>
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-semibold text-gray-900">Your Past Activity</h2>
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Your Past Activity</h2>
             <Link
               href="/activity/actions"
-              className="text-sm font-medium text-blue-600 hover:text-blue-800"
+              className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 hover:dark:text-blue-200"
             >
               Action items →
             </Link>
@@ -161,38 +161,38 @@ export default function ActivityPage() {
           {isLoading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">Loading conversations...</p>
+              <p className="mt-4 text-gray-600 dark:text-gray-400">Loading conversations...</p>
             </div>
           ) : sessions.length > 0 ? (
             <div className="space-y-8">
               {grouped.map(({ key, items }) => (
                 <section key={key}>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">
                     {key}
                   </h3>
                   <div className="space-y-3">
                     {items.map((session) => (
                       <div
                         key={session.id}
-                        className="block bg-white rounded-lg p-5 shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+                        className="block bg-white dark:bg-gray-900 rounded-lg p-5 shadow-sm border border-gray-200 dark:border-gray-800 hover:shadow-md transition-shadow"
                       >
                         <div className="flex justify-between items-start gap-4">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className={`capitalize inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${session.session_type === 'listen' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                              <span className={`capitalize inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${session.session_type === 'listen' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200' : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'}`}>
                                 {session.session_type || 'ask'}
                               </span>
                               {/* Sits beside the title, not on the preview line, because the
                                   preview is dropped when the title came from the same summary -
                                   and this warning must not disappear with it. */}
                               {session.tldr && session.summary_is_final === 0 && (
-                                <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
                                   即時摘要（部分）
                                 </span>
                               )}
                               <Link
                                 href={`/activity/details?sessionId=${session.id}`}
-                                className="text-lg font-medium text-gray-900 hover:underline truncate"
+                                className="text-lg font-medium text-gray-900 dark:text-gray-100 hover:underline truncate"
                               >
                                 {sessionTitle(session)}
                               </Link>
@@ -203,12 +203,12 @@ export default function ActivityPage() {
                                 printed the same sentence twice and wasted the one line that could
                                 have told the reader something new. */}
                             {previewFor(session) && (
-                              <p className="text-sm text-gray-600 line-clamp-2 mb-2">
+                              <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
                                 {previewFor(session)}
                               </p>
                             )}
 
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
                               {metaParts(session).join(' · ')}
                             </div>
                           </div>
@@ -216,7 +216,7 @@ export default function ActivityPage() {
                           <button
                             onClick={() => handleDelete(session.id)}
                             disabled={deletingId === session.id}
-                            className={`shrink-0 px-3 py-1 rounded text-xs font-medium border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 transition-colors ${deletingId === session.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`shrink-0 px-3 py-1 rounded text-xs font-medium border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:bg-red-900/40 transition-colors ${deletingId === session.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
                             {deletingId === session.id ? 'Deleting...' : 'Delete'}
                           </button>
@@ -228,11 +228,11 @@ export default function ActivityPage() {
               ))}
             </div>
           ) : (
-            <div className="text-center bg-white rounded-lg p-12">
-              <p className="text-gray-500 mb-4">
+            <div className="text-center bg-white dark:bg-gray-900 rounded-lg p-12">
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
                 No conversations yet. Start a conversation in the desktop app to see your activity here.
               </p>
-              <div className="text-sm text-gray-400">
+              <div className="text-sm text-gray-400 dark:text-gray-500">
                 💡 Tip: Use the desktop app to have AI-powered conversations that will appear here automatically.
               </div>
             </div>

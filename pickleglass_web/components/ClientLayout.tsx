@@ -31,7 +31,7 @@ export default function ClientLayout({
         onToggle={setIsSidebarCollapsed}
         onSearchClick={() => setIsSearchOpen(true)}
       />
-      <main className="flex-1 overflow-auto bg-white">
+      <main className="flex-1 overflow-auto bg-white dark:bg-gray-900">
         {children}
       </main>
       

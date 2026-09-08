@@ -7,10 +7,10 @@ export default function BillingPage() {
 
   if (!userInfo) {
     return (
-      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
     )
@@ -23,11 +23,11 @@ export default function BillingPage() {
   ]
 
   return (
-    <div className="bg-stone-50 min-h-screen">
+    <div className="bg-stone-50 dark:bg-gray-950 min-h-screen">
       <div className="px-8 py-8">
         <div className="mb-6">
-          <p className="text-xs text-gray-500 mb-1">Settings</p>
-          <h1 className="text-3xl font-bold text-gray-900">Personal settings</h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Settings</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Personal settings</h1>
         </div>
         
         <div className="mb-8">
@@ -38,8 +38,8 @@ export default function BillingPage() {
                 href={tab.href}
                 className={`pb-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                   tab.id === 'billing'
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-gray-900 text-gray-900 dark:text-gray-100'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:dark:text-gray-300 hover:border-gray-300 hover:dark:border-gray-700'
                 }`}
               >
                 {tab.name}
