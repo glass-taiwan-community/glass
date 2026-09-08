@@ -214,7 +214,7 @@ export class SettingsView extends LitElement {
             border-color: rgba(255, 59, 48, 0.4);
         }
 
-        .move-buttons, .bottom-buttons {
+        .bottom-buttons {
             display: flex;
             gap: 4px;
         }
@@ -531,10 +531,8 @@ export class SettingsView extends LitElement {
         showPresets: { type: Boolean, state: true },
         showCommonSettings: { type: Boolean, state: true },
         showApiKeys: { type: Boolean, state: true },
-        autoUpdateEnabled: { type: Boolean, state: true },
         sttLanguage: { type: String, state: true },
         sttLanguageLoading: { type: Boolean, state: true },
-        autoUpdateLoading: { type: Boolean, state: true },
         // Ollama related properties
         ollamaStatus: { type: Object, state: true },
         ollamaModels: { type: Array, state: true },
@@ -583,27 +581,10 @@ export class SettingsView extends LitElement {
         this.whisperModels = [];
         this.whisperProgressTracker = null; // Will be initialized when needed
         this.handleUsePicklesKey = this.handleUsePicklesKey.bind(this)
-        this.autoUpdateEnabled = true;
-        this.autoUpdateLoading = true;
         this.sttLanguage = 'en';
         this.sttLanguageLoading = true;
         this.loadInitialData();
         //////// after_modelStateService ////////
-    }
-
-    async loadAutoUpdateSetting() {
-        if (!window.api) return;
-        this.autoUpdateLoading = true;
-        try {
-            const enabled = await window.api.settingsView.getAutoUpdate();
-            this.autoUpdateEnabled = enabled;
-            console.log('Auto-update setting loaded:', enabled);
-        } catch (e) {
-            console.error('Error loading auto-update setting:', e);
-            this.autoUpdateEnabled = true; // fallback
-        }
-        this.autoUpdateLoading = false;
-        this.requestUpdate();
     }
 
     async loadSttLanguageSetting() {
@@ -635,25 +616,6 @@ export class SettingsView extends LitElement {
             console.error('Error toggling STT language:', e);
         }
         this.sttLanguageLoading = false;
-        this.requestUpdate();
-    }
-
-    async handleToggleAutoUpdate() {
-        if (!window.api || this.autoUpdateLoading) return;
-        this.autoUpdateLoading = true;
-        this.requestUpdate();
-        try {
-            const newValue = !this.autoUpdateEnabled;
-            const result = await window.api.settingsView.setAutoUpdate(newValue);
-            if (result && result.success) {
-                this.autoUpdateEnabled = newValue;
-            } else {
-                console.error('Failed to update auto-update setting');
-            }
-        } catch (e) {
-            console.error('Error toggling auto-update:', e);
-        }
-        this.autoUpdateLoading = false;
         this.requestUpdate();
     }
 
@@ -1019,7 +981,6 @@ export class SettingsView extends LitElement {
         this.setupEventListeners();
         this.setupIpcListeners();
         this.setupWindowResize();
-        this.loadAutoUpdateSetting();
         this.loadSttLanguageSetting();
         // Force one height calculation immediately (innerHeight may be 0 at first)
         setTimeout(() => this.updateScrollHeight(), 0);
@@ -1060,8 +1021,7 @@ export class SettingsView extends LitElement {
             } else {
                 this.firebaseUser = null;
             }
-            this.loadAutoUpdateSetting();
-            this.loadSttLanguageSetting();
+                this.loadSttLanguageSetting();
             // Reload model settings when user state changes (Firebase login/logout)
             this.loadInitialData();
         };
@@ -1173,10 +1133,29 @@ export class SettingsView extends LitElement {
             { name: 'Listen / Stop / Done', accelerator: this.shortcuts.toggleListenSession },
             { name: 'Snap Left', accelerator: this.shortcuts.edgeSnapLeft },
             { name: 'Snap Right', accelerator: this.shortcuts.edgeSnapRight },
-            { name: 'Snap Up', accelerator: this.shortcuts.edgeSnapUp },
-            { name: 'Snap Down', accelerator: this.shortcuts.edgeSnapDown },
+            // edgeSnapUp / edgeSnapDown are in shortcutsService's RETIRED_ACTIONS - their keys
+            // were reclaimed for scrolling - so listing them only ever rendered "N/A".
             { name: 'Insights / Transcript', accelerator: this.shortcuts.toggleListenView },
+            // The Move buttons that used to sit in the actions list are gone; without this row
+            // moving the window would be a capability with nothing anywhere pointing at it.
+            { name: 'Move Window', accelerator: this.shortcuts.moveLeft, keysOverride: 'arrows' },
         ];
+    }
+
+    /**
+     * Renders the modifier of `accelerator` followed by all four arrows.
+     *
+     * moveUp/Down/Left/Right share one modifier and differ only by direction, so four rows would
+     * repeat the same key three times for no added information.
+     */
+    renderArrowFamilyKeys(accelerator) {
+        if (!accelerator) return html`N/A`;
+        const modifiers = accelerator.split('+').slice(0, -1);
+        const keyMap = { Cmd: '⌘', Command: '⌘', Ctrl: '⌃', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧' };
+        return html`
+            ${modifiers.map(key => html`<span class="shortcut-key">${keyMap[key] || key}</span>`)}
+            ${['←', '↑', '↓', '→'].map(arrow => html`<span class="shortcut-key">${arrow}</span>`)}
+        `;
     }
 
     renderShortcutKeys(accelerator) {
@@ -1258,16 +1237,6 @@ export class SettingsView extends LitElement {
         this.selectedPreset = preset;
         // Here you could implement preset application logic
         console.log('Selected preset:', preset);
-    }
-
-    handleMoveLeft() {
-        console.log('Move Left clicked');
-        window.api.settingsView.moveWindowStep('left');
-    }
-
-    handleMoveRight() {
-        console.log('Move Right clicked');
-        window.api.settingsView.moveWindowStep('right');
     }
 
     /** Opens Personalize, where presets are created. Keep this pointed there. */
@@ -1585,19 +1554,6 @@ export class SettingsView extends LitElement {
                     <button class="settings-button full-width" @click=${this.handleToggleSttLanguage} ?disabled=${this.sttLanguageLoading}>
                         <span>Transcription: ${this.sttLanguage === 'zh' ? '繁體中文' : 'English'}</span>
                     </button>
-                    <button class="settings-button full-width" @click=${this.handleToggleAutoUpdate} ?disabled=${this.autoUpdateLoading}>
-                        <span>Automatic Updates: ${this.autoUpdateEnabled ? 'On' : 'Off'}</span>
-                    </button>
-                    
-                    <div class="move-buttons">
-                        <button class="settings-button half-width" @click=${this.handleMoveLeft}>
-                            <span>← Move</span>
-                        </button>
-                        <button class="settings-button half-width" @click=${this.handleMoveRight}>
-                            <span>Move →</span>
-                        </button>
-                    </div>
-                    
                     <button class="settings-button full-width" @click=${this.handleToggleInvisibility}>
                         <span>${this.isContentProtectionOn ? 'Disable Invisibility' : 'Enable Invisibility'}</span>
                     </button>
@@ -1634,7 +1590,9 @@ export class SettingsView extends LitElement {
                         <div class="shortcut-item">
                             <span class="shortcut-name">${shortcut.name}</span>
                             <div class="shortcut-keys">
-                                ${this.renderShortcutKeys(shortcut.accelerator)}
+                                ${shortcut.keysOverride === 'arrows'
+                                    ? this.renderArrowFamilyKeys(shortcut.accelerator)
+                                    : this.renderShortcutKeys(shortcut.accelerator)}
                             </div>
                         </div>
                     `)}
