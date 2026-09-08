@@ -631,38 +631,68 @@ function handlePersonalizeFromUrl(params) {
 }
 
 
-async function startWebStack() {
-  console.log('NODE_ENV =', process.env.NODE_ENV); 
-  const isDev = !app.isPackaged;
+/**
+ * Preferred ports for the local web stack.
+ *
+ * These are the values the rest of the codebase already falls back to when the environment is
+ * unset - `http://localhost:3000` in config.js, featureBridge.js, authService.js, windowManager.js
+ * and the backend's CORS origin, and `localhost:9001` for the API in the web client. Binding them
+ * for real makes those fallbacks true instead of aspirational, and gives the user an address they
+ * can remember rather than one they have to find in a log.
+ */
+const PREFERRED_FRONTEND_PORT = 3000;
+const PREFERRED_API_PORT = 9001;
 
-  const getAvailablePort = () => {
+/** How many consecutive ports to try before giving up. */
+const PORT_SCAN_LIMIT = 20;
+
+/**
+ * Binds an Express app to one port, resolving only once it is actually listening.
+ *
+ * @param {import('express').Express} expressApp
+ * @param {number} port
+ * @returns {Promise<import('http').Server>}
+ */
+function listenOnPort(expressApp, port) {
     return new Promise((resolve, reject) => {
-      const server = require('net').createServer();
-      server.listen(0, (err) => {
-        if (err) reject(err);
-        const port = server.address().port;
-        server.close(() => resolve(port));
-      });
+        const server = expressApp.listen(port, '127.0.0.1', () => resolve(server));
+        server.once('error', reject);
     });
-  };
+}
 
-  const apiPort = await getAvailablePort();
-  const frontendPort = await getAvailablePort();
+/**
+ * Binds an Express app to the first free port at or after `preferred`.
+ *
+ * Binds the real server directly rather than probing with a throwaway socket first. The previous
+ * approach opened a socket on port 0, read the port the OS assigned, closed it, and bound the real
+ * server later - leaving a window in which anything else could take that port, and producing a
+ * different address on every launch for a service the user is expected to visit.
+ *
+ * @param {import('express').Express} expressApp
+ * @param {number} preferred - Port to try first
+ * @param {string} label - Name used in log lines
+ * @returns {Promise<{server: import('http').Server, port: number}>}
+ */
+async function listenOnFirstAvailablePort(expressApp, preferred, label) {
+    for (let port = preferred; port < preferred + PORT_SCAN_LIMIT; port++) {
+        try {
+            const server = await listenOnPort(expressApp, port);
+            app.once('before-quit', () => server.close());
+            return { server, port };
+        } catch (err) {
+            // Anything other than a taken port is a real failure and must not be swallowed by
+            // silently moving to the next one.
+            if (err.code !== 'EADDRINUSE') throw err;
+            console.log(`[web] ${label} port ${port} is in use, trying ${port + 1}`);
+        }
+    }
+    throw new Error(
+        `Could not bind ${label}: ports ${preferred}-${preferred + PORT_SCAN_LIMIT - 1} are all in use.`
+    );
+}
 
-  console.log(`🔧 Allocated ports: API=${apiPort}, Frontend=${frontendPort}`);
-
-  process.env.pickleglass_API_PORT = apiPort.toString();
-  process.env.pickleglass_API_URL = `http://localhost:${apiPort}`;
-  process.env.pickleglass_WEB_PORT = frontendPort.toString();
-  process.env.pickleglass_WEB_URL = `http://localhost:${frontendPort}`;
-
-  console.log(`🌍 Environment variables set:`, {
-    pickleglass_API_URL: process.env.pickleglass_API_URL,
-    pickleglass_WEB_URL: process.env.pickleglass_WEB_URL
-  });
-
-  const createBackendApp = require('../pickleglass_web/backend_node');
-  const nodeApi = createBackendApp(eventBridge);
+async function startWebStack() {
+  console.log('NODE_ENV =', process.env.NODE_ENV);
 
   const staticDir = app.isPackaged
     ? path.join(process.resourcesPath, 'out')
@@ -680,23 +710,20 @@ async function startWebStack() {
     return;
   }
 
-  const runtimeConfig = {
-    API_URL: `http://localhost:${apiPort}`,
-    WEB_URL: `http://localhost:${frontendPort}`,
-    timestamp: Date.now()
-  };
-  
-  // 쓰기 가능한 임시 폴더에 런타임 설정 파일 생성
-  const tempDir = app.getPath('temp');
-  const configPath = path.join(tempDir, 'runtime-config.json');
-  fs.writeFileSync(configPath, JSON.stringify(runtimeConfig, null, 2));
-  console.log(`📝 Runtime config created in temp location: ${configPath}`);
+  // Filled in once the servers bind, from the ports they actually got. The route below closes
+  // over this object, so it always serves this instance's own values.
+  const runtimeConfig = { API_URL: null, WEB_URL: null, timestamp: null };
+
+  // Also written to disk, purely so a human can find the URL without reading the log.
+  const configPath = path.join(app.getPath('temp'), 'runtime-config.json');
 
   const frontSrv = express();
-  
-  // 프론트엔드에서 /runtime-config.json을 요청하면 임시 폴더의 파일을 제공
+
+  // Served from memory, not from the file on disk. The file lives in a shared temp directory, so
+  // a second instance overwrites it - and the first instance's frontend would then be handed the
+  // second instance's API URL and start talking to the wrong backend.
   frontSrv.get('/runtime-config.json', (req, res) => {
-    res.sendFile(configPath);
+    res.json(runtimeConfig);
   });
 
   frontSrv.use((req, res, next) => {
@@ -711,28 +738,35 @@ async function startWebStack() {
   
   frontSrv.use(express.static(staticDir));
   
-  const frontendServer = await new Promise((resolve, reject) => {
-    const server = frontSrv.listen(frontendPort, '127.0.0.1', () => resolve(server));
-    server.on('error', reject);
-    app.once('before-quit', () => server.close());
-  });
+  // The frontend binds first because the backend reads pickleglass_WEB_URL at construction time,
+  // to set its CORS origin - it cannot be built until the frontend's real port is known.
+  const { port: frontendPort } = await listenOnFirstAvailablePort(
+    frontSrv, PREFERRED_FRONTEND_PORT, 'frontend'
+  );
+  process.env.pickleglass_WEB_PORT = frontendPort.toString();
+  process.env.pickleglass_WEB_URL = `http://localhost:${frontendPort}`;
 
-  console.log(`✅ Frontend server started on http://localhost:${frontendPort}`);
-
+  const createBackendApp = require('../pickleglass_web/backend_node');
   const apiSrv = express();
-  apiSrv.use(nodeApi);
+  apiSrv.use(createBackendApp(eventBridge));
 
-  const apiServer = await new Promise((resolve, reject) => {
-    const server = apiSrv.listen(apiPort, '127.0.0.1', () => resolve(server));
-    server.on('error', reject);
-    app.once('before-quit', () => server.close());
-  });
+  const { port: apiPort } = await listenOnFirstAvailablePort(
+    apiSrv, PREFERRED_API_PORT, 'API'
+  );
+  process.env.pickleglass_API_PORT = apiPort.toString();
+  process.env.pickleglass_API_URL = `http://localhost:${apiPort}`;
 
-  console.log(`✅ API server started on http://localhost:${apiPort}`);
+  // Populated only now, so neither the route nor the file can ever advertise a port that
+  // nothing is listening on.
+  runtimeConfig.API_URL = process.env.pickleglass_API_URL;
+  runtimeConfig.WEB_URL = process.env.pickleglass_WEB_URL;
+  runtimeConfig.timestamp = Date.now();
+  fs.writeFileSync(configPath, JSON.stringify(runtimeConfig, null, 2));
 
-  console.log(`🚀 All services ready:
-   Frontend: http://localhost:${frontendPort}
-   API:      http://localhost:${apiPort}`);
+  // One line, always the same shape, so it can be found with a grep instead of by scrolling -
+  // and `runtime-config.json` gives the same answer without the log at all.
+  console.log(`🚀 Glass web GUI: ${process.env.pickleglass_WEB_URL}`);
+  console.log(`   API: ${process.env.pickleglass_API_URL}  ·  URLs also in ${configPath}`);
 
   return frontendPort;
 }
