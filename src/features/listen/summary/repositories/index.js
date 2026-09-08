@@ -21,6 +21,13 @@ const summaryRepositoryAdapter = {
     },
     getSummaryBySessionId: (sessionId) => {
         return getBaseRepository().getSummaryBySessionId(sessionId);
+    },
+    saveActionDone: (sessionId, doneTexts) => {
+        return getBaseRepository().saveActionDone(sessionId, doneTexts);
+    },
+    getAllActionItems: () => {
+        const uid = authService.getCurrentUserId();
+        return getBaseRepository().getAllActionItems(uid);
     }
 };
 

@@ -49,6 +49,33 @@ async function getAllByUserId(uid) {
     return querySnapshot.docs.map(doc => doc.data());
 }
 
+/**
+ * Title-only search, because Firestore cannot do it any better.
+ *
+ * Titles are stored encrypted and transcripts/messages live in per-session sub-collections, so
+ * a content search would mean downloading and decrypting every record of every session on each
+ * keystroke. The `scope` in the return value is the point: it lets the UI say out loud that only
+ * titles were searched, instead of quietly showing thin results the way the old broken search did.
+ *
+ * @param {string} uid - Owner
+ * @param {string} q - Raw user query
+ * @param {number} [max=30] - Maximum sessions to return
+ * @returns {Promise<{scope: 'title', results: Array<object>}>}
+ */
+async function searchSessions(uid, q, max = 30) {
+    const trimmed = (q || '').trim();
+    if (!trimmed) return { scope: 'title', results: [] };
+
+    const all = await getAllByUserId(uid);
+    const needle = trimmed.toLowerCase();
+    const results = all
+        .filter(session => (session.title || '').toLowerCase().includes(needle))
+        .slice(0, max)
+        .map(session => ({ ...session, snippet: session.title, snippet_source: 'title' }));
+
+    return { scope: 'title', results };
+}
+
 async function updateTitle(id, title) {
     const docRef = doc(sessionsCol(), id);
     await updateDoc(docRef, {
@@ -151,6 +178,7 @@ module.exports = {
     getById,
     create,
     getAllByUserId,
+    searchSessions,
     updateTitle,
     deleteWithRelatedData,
     end,

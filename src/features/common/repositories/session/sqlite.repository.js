@@ -21,10 +21,185 @@ function create(uid, type = 'ask') {
     }
 }
 
+/**
+ * Columns every session listing returns, including the content-derived fields the Activity
+ * cards need to be identifiable.
+ *
+ * `tldr` and `summary_is_final` are picked from the whole final artifact or the whole live one,
+ * never mixed: the live snapshot only covers the last 30 turns, so a card that showed a live
+ * tldr without saying so would claim to summarise a meeting it only saw the end of.
+ */
+const SESSION_LIST_COLUMNS = `
+    s.id, s.uid, s.title, s.session_type, s.started_at, s.ended_at, s.sync_state, s.updated_at,
+    CASE WHEN su.final_generated_at IS NOT NULL THEN su.final_tldr ELSE su.tldr END AS tldr,
+    CASE WHEN su.final_generated_at IS NOT NULL THEN 1 ELSE 0 END AS summary_is_final,
+    (SELECT COUNT(*) FROM transcripts t WHERE t.session_id = s.id) AS transcript_count,
+    (SELECT COUNT(*) FROM ai_messages m WHERE m.session_id = s.id AND m.role = 'user') AS ask_count,
+    -- How long the conversation actually ran, measured from its own records.
+    --
+    -- NOT ended_at - started_at: ended_at is stamped when the app closes the session, which can be
+    -- days after anyone stopped talking. On one real database that arithmetic labelled a 49-minute
+    -- meeting "66h 0m".
+    --
+    -- Transcripts define the span whenever they exist, and Ask messages are deliberately excluded
+    -- from it. getOrCreateActive() reuses one session across a whole working period, so a session
+    -- can hold a meeting plus questions asked 18 hours earlier or later; spanning both reports a
+    -- 27-minute meeting as 18 hours. Ask-only sessions fall back to their message span.
+    COALESCE(
+        (SELECT MAX(start_at) - MIN(start_at) FROM transcripts WHERE session_id = s.id),
+        (SELECT MAX(sent_at) - MIN(sent_at) FROM ai_messages WHERE session_id = s.id)
+    ) AS content_span
+`;
+
 function getAllByUserId(uid) {
     const db = sqliteClient.getDb();
-    const query = "SELECT id, uid, title, session_type, started_at, ended_at, sync_state, updated_at FROM sessions WHERE uid = ? ORDER BY started_at DESC";
+    const query = `
+        SELECT ${SESSION_LIST_COLUMNS}
+        FROM sessions s
+        LEFT JOIN summaries su ON su.session_id = s.id
+        WHERE s.uid = ?
+        ORDER BY s.started_at DESC
+    `;
     return db.prepare(query).all(uid);
+}
+
+/**
+ * Every summary field worth searching, concatenated into one haystack.
+ *
+ * Summaries are the most searchable text a session owns - the tldr and the action items are the
+ * distilled phrases a user actually remembers ("the pricing proposal one"), while the transcript
+ * is verbatim speech that rarely matches how the meeting is recalled. Both the live and final
+ * artifacts are included: recall matters more than precision here, and a hit in either is a real
+ * hit even though only one of them is ever displayed.
+ */
+const SUMMARY_HAYSTACK = `(
+    COALESCE(su.tldr, '')       || ' ' || COALESCE(su.final_tldr, '')       || ' ' ||
+    COALESCE(su.text, '')       || ' ' || COALESCE(su.final_text, '')       || ' ' ||
+    COALESCE(su.bullet_json, '')|| ' ' || COALESCE(su.final_bullet_json, '')|| ' ' ||
+    COALESCE(su.action_json, '')|| ' ' || COALESCE(su.final_action_json, '')
+)`;
+
+/** How much text to keep either side of a search hit when building the preview snippet. */
+const SNIPPET_RADIUS = 70;
+
+/**
+ * Escapes the LIKE wildcards a user can type so that searching for "50%" or "a_b" looks for
+ * those literal characters instead of matching everything.
+ *
+ * @param {string} value - Raw user query
+ * @returns {string} Query safe to interpolate into a LIKE pattern using ESCAPE '\'
+ */
+function escapeLikePattern(value) {
+    return value.replace(/[\\%_]/g, ch => `\\${ch}`);
+}
+
+/**
+ * Extracts the text around the first match so a result is recognisable without opening it.
+ *
+ * @param {string} text - Haystack
+ * @param {string} query - What the user searched for
+ * @returns {string|null} Snippet with ellipses, or null when the text does not contain the query
+ */
+function buildSnippet(text, query) {
+    if (!text) return null;
+    const at = text.toLowerCase().indexOf(query.toLowerCase());
+    if (at === -1) return null;
+
+    const from = Math.max(0, at - SNIPPET_RADIUS);
+    const to = Math.min(text.length, at + query.length + SNIPPET_RADIUS);
+    return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`;
+}
+
+/**
+ * Full-content search across a user's sessions.
+ *
+ * Searches transcripts and Ask messages, not just titles: sessions are auto-titled
+ * ("Session @ 14:03"), so a title-only search would appear to work and find nothing.
+ *
+ * Uses LIKE rather than FTS5 deliberately - this is single-user local data, and FTS5 would cost
+ * a virtual table, a backfill and index upkeep for a corpus small enough that a scan is instant.
+ *
+ * @param {string} uid - Owner
+ * @param {string} query - Raw user query; wildcards are escaped, not honoured
+ * @param {number} [limit=30] - Maximum sessions to return
+ * @returns {{scope: 'content', results: Array<object>}} Rows plus `snippet`, `snippet_source`
+ *   and hit counts. `scope` tells the UI how much was actually searched - the Firebase
+ *   implementation can only manage titles, and silently returning fewer results is the exact
+ *   failure this feature exists to fix.
+ */
+function searchSessions(uid, query, limit = 30) {
+    const db = sqliteClient.getDb();
+    const trimmed = (query || '').trim();
+    if (!trimmed) return { scope: 'content', results: [] };
+
+    const pattern = `%${escapeLikePattern(trimmed)}%`;
+
+    // Hit counts double as the WHERE filter's evidence, so they are computed once and reused
+    // rather than duplicated between SELECT and WHERE as correlated subqueries.
+    const sessions = db.prepare(`
+        SELECT ${SESSION_LIST_COLUMNS},
+            (SELECT COUNT(*) FROM transcripts t
+              WHERE t.session_id = s.id AND t.text LIKE @pattern ESCAPE '\\') AS transcript_hits,
+            (SELECT COUNT(*) FROM ai_messages m
+              WHERE m.session_id = s.id AND m.content LIKE @pattern ESCAPE '\\') AS message_hits,
+            (CASE WHEN ${SUMMARY_HAYSTACK} LIKE @pattern ESCAPE '\\' THEN 1 ELSE 0 END) AS summary_hit,
+            (CASE WHEN s.title LIKE @pattern ESCAPE '\\' THEN 1 ELSE 0 END) AS title_hit
+        FROM sessions s
+        LEFT JOIN summaries su ON su.session_id = s.id
+        WHERE s.uid = @uid
+          AND (
+            s.title LIKE @pattern ESCAPE '\\'
+            OR ${SUMMARY_HAYSTACK} LIKE @pattern ESCAPE '\\'
+            OR EXISTS (SELECT 1 FROM transcripts t
+                        WHERE t.session_id = s.id AND t.text LIKE @pattern ESCAPE '\\')
+            OR EXISTS (SELECT 1 FROM ai_messages m
+                        WHERE m.session_id = s.id AND m.content LIKE @pattern ESCAPE '\\')
+          )
+        ORDER BY s.started_at DESC
+        LIMIT @limit
+    `).all({ uid, pattern, limit });
+
+    // The snippet comes from whichever record actually matched. Ask content is preferred over
+    // transcript text because a question the user typed themselves is the stronger memory cue.
+    const firstMessage = db.prepare(`
+        SELECT content AS text FROM ai_messages
+        WHERE session_id = ? AND content LIKE ? ESCAPE '\\'
+        ORDER BY sent_at ASC LIMIT 1
+    `);
+    const firstTranscript = db.prepare(`
+        SELECT text FROM transcripts
+        WHERE session_id = ? AND text LIKE ? ESCAPE '\\'
+        ORDER BY start_at ASC LIMIT 1
+    `);
+
+    const results = sessions.map(session => {
+        let snippet = null;
+        let snippet_source = null;
+
+        if (session.message_hits > 0) {
+            snippet = buildSnippet(firstMessage.get(session.id, pattern)?.text, trimmed);
+            snippet_source = 'ask';
+        }
+        if (!snippet && session.transcript_hits > 0) {
+            snippet = buildSnippet(firstTranscript.get(session.id, pattern)?.text, trimmed);
+            snippet_source = 'transcript';
+        }
+        if (!snippet && session.summary_hit) {
+            // The match may be anywhere in the haystack (an action item, a bullet), but the tldr
+            // is the one line that reads as prose, so it is the better preview even when the hit
+            // was elsewhere. Fall back to the haystack when there is no tldr to show.
+            snippet = session.tldr || buildSnippet(session.title, trimmed) || null;
+            snippet_source = 'summary';
+        }
+        if (!snippet && session.title_hit) {
+            snippet = session.title;
+            snippet_source = 'title';
+        }
+
+        return { ...session, snippet, snippet_source };
+    });
+
+    return { scope: 'content', results };
 }
 
 function updateTitle(id, title) {
@@ -128,6 +303,7 @@ module.exports = {
     getById,
     create,
     getAllByUserId,
+    searchSessions,
     updateTitle,
     deleteWithRelatedData,
     end,
