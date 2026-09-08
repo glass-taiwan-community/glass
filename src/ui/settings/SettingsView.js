@@ -246,6 +246,37 @@ export class SettingsView extends LitElement {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
+        /*
+         * Collapsible section header. Generalised from .preset-header, which had the same shape
+         * already; the whole row is the hit target rather than just the arrow, because a 10px
+         * glyph is a poor click target in a 240px-wide window.
+         */
+        .collapsible-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 2px;
+            margin-top: 4px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsible-header:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .collapsible-title {
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .collapsible-arrow {
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
         .preset-header {
             display: flex;
             justify-content: space-between;
@@ -498,6 +529,8 @@ export class SettingsView extends LitElement {
         presets: { type: Array, state: true },
         selectedPreset: { type: Object, state: true },
         showPresets: { type: Boolean, state: true },
+        showCommonSettings: { type: Boolean, state: true },
+        showApiKeys: { type: Boolean, state: true },
         autoUpdateEnabled: { type: Boolean, state: true },
         sttLanguage: { type: String, state: true },
         sttLanguageLoading: { type: Boolean, state: true },
@@ -538,6 +571,10 @@ export class SettingsView extends LitElement {
         this.presets = [];
         this.selectedPreset = null;
         this.showPresets = false;
+        // Restored per section: someone in the middle of entering an API key should not have to
+        // reopen that section on every visit to the settings window.
+        this.showCommonSettings = SettingsView._readCollapsed('commonSettings');
+        this.showApiKeys = SettingsView._readCollapsed('apiKeys');
         // Ollama related
         this.ollamaStatus = { installed: false, running: false };
         this.ollamaModels = [];
@@ -1161,6 +1198,58 @@ export class SettingsView extends LitElement {
         return html`${keys.map(key => html`<span class="shortcut-key">${keyMap[key] || key}</span>`)}`;
     }
 
+    /**
+     * Reads a section's remembered open state.
+     *
+     * Storage can throw (private mode, blocked site data) and the value can be absent, so both
+     * degrade to collapsed - the state that keeps the window short.
+     *
+     * @param {string} key - Section identifier
+     * @returns {boolean}
+     */
+    static _readCollapsed(key) {
+        try {
+            return localStorage.getItem(`glass.settings.open.${key}`) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    /** Remembers a section's open state; a storage failure must never break the toggle. */
+    static _writeCollapsed(key, open) {
+        try {
+            localStorage.setItem(`glass.settings.open.${key}`, open ? '1' : '0');
+        } catch {
+            /* not important enough to surface */
+        }
+    }
+
+    toggleCommonSettings() {
+        this.showCommonSettings = !this.showCommonSettings;
+        SettingsView._writeCollapsed('commonSettings', this.showCommonSettings);
+    }
+
+    toggleApiKeys() {
+        this.showApiKeys = !this.showApiKeys;
+        SettingsView._writeCollapsed('apiKeys', this.showApiKeys);
+    }
+
+    /**
+     * A section header that expands and collapses on click.
+     *
+     * @param {string} title
+     * @param {boolean} expanded
+     * @param {Function} onToggle
+     */
+    renderCollapsibleHeader(title, expanded, onToggle) {
+        return html`
+            <div class="collapsible-header" @click=${onToggle}>
+                <span class="collapsible-title">${title}</span>
+                <span class="collapsible-arrow">${expanded ? '▼' : '▶'}</span>
+            </div>
+        `;
+    }
+
     togglePresets() {
         this.showPresets = !this.showPresets;
     }
@@ -1488,88 +1577,7 @@ export class SettingsView extends LitElement {
                     </div>
                 </div>
 
-                ${apiKeyManagementHTML}
-                ${modelSelectionHTML}
-
-                <div class="buttons-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 6px; margin-top: 6px;">
-                    <button class="settings-button full-width" @click=${this.openShortcutEditor}>
-                        Edit Shortcuts
-                    </button>
-                </div>
-
-                
-                <div class="shortcuts-section">
-                    ${this.getMainShortcuts().map(shortcut => html`
-                        <div class="shortcut-item">
-                            <span class="shortcut-name">${shortcut.name}</span>
-                            <div class="shortcut-keys">
-                                ${this.renderShortcutKeys(shortcut.accelerator)}
-                            </div>
-                        </div>
-                    `)}
-                </div>
-
-                ${this.voiceAskAvailability ? html`
-                    <div class="shortcut-item">
-                        <span class="shortcut-name">Voice input (hold Right-⌘)</span>
-                        <div class="shortcut-keys">
-                            ${this.voiceAskAvailability.available
-                                ? html`<span
-                                        @click=${this.handleToggleVoiceAsk}
-                                        title="Hold Right-Command to record a question and send it to Ask"
-                                        style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
-                                               background:${this.voiceAskEnabled ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
-                                               color:${this.voiceAskEnabled ? '#6fdd8b' : '#bbb'}">
-                                        ${this.voiceAskEnabled ? 'On' : 'Off'}
-                                       </span>`
-                                : html`<span style="font-size:11px;color:#e0857b">unavailable (native module failed to load)</span>`}
-                        </div>
-                    </div>
-                ` : ''}
-
-                <div class="shortcut-item">
-                    <span class="shortcut-name">Save screen captures to history</span>
-                    <div class="shortcut-keys">
-                        <span
-                            @click=${this.handleToggleSaveScreenshots}
-                            title="Save the screenshot from a screen-only Ask (Cmd+Enter twice) to your activity history"
-                            style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
-                                   background:${this.saveAskScreenshots ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
-                                   color:${this.saveAskScreenshots ? '#6fdd8b' : '#bbb'}">
-                            ${this.saveAskScreenshots ? 'On' : 'Off'}
-                        </span>
-                    </div>
-                </div>
-
-                <div class="preset-section">
-                    <div class="preset-header">
-                        <span class="preset-title">
-                            My Presets
-                            <span class="preset-count">(${this.presets.filter(p => p.is_default === 0).length})</span>
-                        </span>
-                        <span class="preset-toggle" @click=${this.togglePresets}>
-                            ${this.showPresets ? '▼' : '▶'}
-                        </span>
-                    </div>
-                    
-                    <div class="preset-list ${this.showPresets ? '' : 'hidden'}">
-                        ${this.presets.filter(p => p.is_default === 0).length === 0 ? html`
-                            <div class="no-presets-message">
-                                No custom presets yet.<br>
-                                <span class="web-link" @click=${this.handlePersonalize}>
-                                    Create your first preset
-                                </span>
-                            </div>
-                        ` : this.presets.filter(p => p.is_default === 0).map(preset => html`
-                            <div class="preset-item ${this.selectedPreset?.id === preset.id ? 'selected' : ''}"
-                                 @click=${() => this.handlePresetSelect(preset)}>
-                                <span class="preset-name">${preset.title}</span>
-                                ${this.selectedPreset?.id === preset.id ? html`<span class="preset-status">Selected</span>` : ''}
-                            </div>
-                        `)}
-                    </div>
-                </div>
-
+                ${/* Actions first: these are the reason the window is opened. */ ''}
                 <div class="buttons-section">
                     <button class="settings-button full-width" @click=${this.handleOpenDashboard}>
                         <span>Open Dashboard</span>
@@ -1611,6 +1619,98 @@ export class SettingsView extends LitElement {
                             <span>Quit</span>
                         </button>
                     </div>
+                </div>
+
+                ${/* The shortcut cheatsheet stays expanded - it is glanced at, not clicked. */ ''}
+                <div class="buttons-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 6px; margin-top: 6px;">
+                    <button class="settings-button full-width" @click=${this.openShortcutEditor}>
+                        Edit Shortcuts
+                    </button>
+                </div>
+
+                
+                <div class="shortcuts-section">
+                    ${this.getMainShortcuts().map(shortcut => html`
+                        <div class="shortcut-item">
+                            <span class="shortcut-name">${shortcut.name}</span>
+                            <div class="shortcut-keys">
+                                ${this.renderShortcutKeys(shortcut.accelerator)}
+                            </div>
+                        </div>
+                    `)}
+                </div>
+
+                ${this.voiceAskAvailability ? html`
+                    <div class="shortcut-item">
+                        <span class="shortcut-name">Voice input (hold Right-⌘)</span>
+                        <div class="shortcut-keys">
+                            ${this.voiceAskAvailability.available
+                                ? html`<span
+                                        @click=${this.handleToggleVoiceAsk}
+                                        title="Hold Right-Command to record a question and send it to Ask"
+                                        style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
+                                               background:${this.voiceAskEnabled ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
+                                               color:${this.voiceAskEnabled ? '#6fdd8b' : '#bbb'}">
+                                        ${this.voiceAskEnabled ? 'On' : 'Off'}
+                                       </span>`
+                                : html`<span style="font-size:11px;color:#e0857b">unavailable (native module failed to load)</span>`}
+                        </div>
+                    </div>
+                ` : ''}
+
+
+
+                ${/* Collapsed by default: consulted occasionally, and 198px when open. */ ''}
+                ${this.renderCollapsibleHeader('Preferences', this.showCommonSettings, this.toggleCommonSettings)}
+                <div class="${this.showCommonSettings ? '' : 'hidden'}">
+                    ${modelSelectionHTML}
+                <div class="shortcut-item">
+                    <span class="shortcut-name">Save screen captures to history</span>
+                    <div class="shortcut-keys">
+                        <span
+                            @click=${this.handleToggleSaveScreenshots}
+                            title="Save the screenshot from a screen-only Ask (Cmd+Enter twice) to your activity history"
+                            style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px;
+                                   background:${this.saveAskScreenshots ? 'rgba(111,221,139,0.18)' : 'rgba(255,255,255,0.08)'};
+                                   color:${this.saveAskScreenshots ? '#6fdd8b' : '#bbb'}">
+                            ${this.saveAskScreenshots ? 'On' : 'Off'}
+                        </span>
+                    </div>
+                </div>
+                <div class="preset-section">
+                    <div class="preset-header">
+                        <span class="preset-title">
+                            My Presets
+                            <span class="preset-count">(${this.presets.filter(p => p.is_default === 0).length})</span>
+                        </span>
+                        <span class="preset-toggle" @click=${this.togglePresets}>
+                            ${this.showPresets ? '▼' : '▶'}
+                        </span>
+                    </div>
+                    
+                    <div class="preset-list ${this.showPresets ? '' : 'hidden'}">
+                        ${this.presets.filter(p => p.is_default === 0).length === 0 ? html`
+                            <div class="no-presets-message">
+                                No custom presets yet.<br>
+                                <span class="web-link" @click=${this.handlePersonalize}>
+                                    Create your first preset
+                                </span>
+                            </div>
+                        ` : this.presets.filter(p => p.is_default === 0).map(preset => html`
+                            <div class="preset-item ${this.selectedPreset?.id === preset.id ? 'selected' : ''}"
+                                 @click=${() => this.handlePresetSelect(preset)}>
+                                <span class="preset-name">${preset.title}</span>
+                                ${this.selectedPreset?.id === preset.id ? html`<span class="preset-status">Selected</span>` : ''}
+                            </div>
+                        `)}
+                    </div>
+                </div>
+                </div>
+
+                ${/* Collapsed by default: 620px of one-time setup, the largest block here. */ ''}
+                ${this.renderCollapsibleHeader('API Keys & Providers', this.showApiKeys, this.toggleApiKeys)}
+                <div class="${this.showApiKeys ? '' : 'hidden'}">
+                    ${apiKeyManagementHTML}
                 </div>
             </div>
         `;
