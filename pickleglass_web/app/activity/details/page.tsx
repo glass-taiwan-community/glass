@@ -14,7 +14,8 @@ import {
   setActionItemsDone,
   getApiOrigin,
 } from '@/utils/api'
-import { actionItemsFrom, buildTimeline, parseList } from '@/utils/sessionContent'
+import { actionItemsFrom, buildTimeline, parseList, sessionTitle } from '@/utils/sessionContent'
+import Markdown from '@/components/Markdown'
 
 /** Runs at least this long start collapsed. Shorter ones are cheaper to show than to hide. */
 const COLLAPSE_RUN_AT = 4
@@ -180,7 +181,7 @@ function SessionDetailsContent() {
                 <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                            {sessionDetails.session.title || `Conversation on ${new Date(sessionDetails.session.started_at * 1000).toLocaleDateString()}`}
+                            {sessionTitle(sessionDetails.session)}
                         </h1>
                         <div className="flex items-center text-sm text-gray-500 space-x-4">
                             <span>{new Date(sessionDetails.session.started_at * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
@@ -306,7 +307,7 @@ function SessionDetailsContent() {
                                             </span>
                                         </div>
                                         {message.content
-                                            ? <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
+                                            ? <Markdown content={message.content} className="text-gray-800" />
                                             : message.image_path
                                                 ? <p className="text-gray-400 italic text-sm">Screen capture</p>
                                                 : null}

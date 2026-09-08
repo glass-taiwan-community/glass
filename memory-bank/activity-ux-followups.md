@@ -14,10 +14,12 @@ Nothing here is blocking. Ordered so the highest-value item is first within each
       affordance is opening the raw image in a new tab
       (`pickleglass_web/app/activity/details/page.tsx`, the `<img>` inside the timeline). A
       modal that keeps the reader on the page is the obvious upgrade.
-- [ ] **Markdown rendering for Ask answers.** Answers are stored as markdown and rendered with
-      `whitespace-pre-wrap`, so a reader sees literal `**Subject:**` and `- bullet`. This is
-      pre-existing behaviour, not introduced by the Activity work, but the merged timeline puts
-      answers front and centre and makes it much more visible.
+- [x] **Markdown rendering for Ask answers.** Done 2026-09-07. `components/Markdown.tsx` uses
+      `marked` + `DOMPurify` — the same two libraries the desktop Ask view already loads, so both
+      surfaces render identically; both ship with zero transitive dependencies. Sanitising is
+      verified, not assumed: a probe containing `<script>`, `<iframe>`, `onerror=` and a
+      `javascript:` href rendered with all four stripped and no handler firing, while bold and
+      headings survived.
 - [ ] **Search-result highlight and jump.** Clicking a result opens the session at the top. It
       should scroll to the matching line and highlight it — the snippet already proves the
       match exists, so the position is known.
@@ -46,6 +48,10 @@ Nothing here is blocking. Ordered so the highest-value item is first within each
       model output. If the summary prompt changes wording, the filter silently stops working
       and the page fills with placeholders again.
       *Better fix: have the summariser emit an empty array instead of a prose placeholder.*
+- [x] **Session titles could still be better.** The derivation takes a summary's opening
+      sentence, so several interview sessions read "這是一場技術面試…". Distinguishable by the names
+      inside them, but a purpose-written one-line title from the summariser would be sharper.
+      *Not blocking; revisit if the list starts feeling samey.*
 - [ ] **Duration excludes Ask messages.** `content_span` is the transcript span, falling back to
       the message span only for Ask-only sessions. Consequence: Ask-only sessions almost always
       read "under a minute", which is true but carries no information.
@@ -56,16 +62,23 @@ Nothing here is blocking. Ordered so the highest-value item is first within each
 
 ## C. Root causes upstream of this work
 
-- [ ] **Sessions are not meetings.** `getOrCreateActive()` reuses one session across a working
-      period, so a single session can hold a 27-minute meeting plus a question asked 18 hours
-      earlier. This forced the duration rule in B above, and it means "session" is a weak unit
-      for review generally. Worth deciding whether sessions should close on inactivity.
-- [ ] **Sessions have no real titles.** Everything is `Session @ 2:02:40 AM`. The content
-      preview on cards works around this; generating a title from the final summary would fix
-      it at the source and would also make search-by-title meaningful.
-- [ ] **Only 42 of 182 sessions ever produced a final summary.** The other 140 have only the
-      live snapshot, so they show a partial summary and no action items. Worth finding out why
-      — sessions that ended without the finaliser running, or that never reached the threshold.
+- [x] **Sessions are not meetings.** Done 2026-09-07. `getOrCreateActive()` now ends a session
+      that has gone an hour without new content instead of reusing it. The hour came from the
+      data, not taste: 16 sessions contain a gap over 20 minutes but only 11 contain one over 60,
+      and that count is unchanged at 120 — gaps under an hour are breaks inside one sitting.
+      Idleness is measured from the last transcript or message, never from `updated_at`, which
+      `touch()` bumps on every lookup and which would therefore never look idle.
+- [x] **Sessions have no real titles.** Done 2026-09-07. Derived in SQL (`DERIVED_TITLE`) rather
+      than backfilled, with a fallback chain final tldr → live tldr → first transcript line →
+      first question. **Deriving was the right call precisely because a backfill from summaries
+      would have reached fewer than a quarter of sessions** (see the next item). 172 of 182 get a
+      real title; the 10 with no content at all keep the timestamp.
+- [x] **Only 42 of 182 sessions ever produced a final summary — explained, not a bug.** The
+      automatic final-summary feature did not exist when those sessions were recorded. Nothing to
+      fix. It does mean the 140 older sessions will permanently show a partial summary and no
+      action items, and it is why titles are derived rather than generated from summaries.
+      *Open, optional: backfill final summaries for old sessions from their transcripts. Costs
+      one LLM call each and would retroactively give them action items.*
 
 ## D. Testing
 

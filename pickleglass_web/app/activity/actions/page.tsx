@@ -9,7 +9,7 @@ import {
   getActionItems,
   setActionItemsDone,
 } from '@/utils/api'
-import { actionItemsFrom, parseList } from '@/utils/sessionContent'
+import { actionItemsFrom, parseList, sessionTitle } from '@/utils/sessionContent'
 
 /** The real action items for one session. The server only sends finished sessions here. */
 const actionsFor = (row: SessionActionItems): string[] => actionItemsFrom(row.final_action_json)
@@ -139,7 +139,7 @@ export default function ActionItemsPage() {
                     href={`/activity/details?sessionId=${row.session_id}`}
                     className="font-medium text-gray-900 hover:underline truncate"
                   >
-                    {row.title || 'Untitled conversation'}
+                    {sessionTitle(row)}
                   </Link>
                   <span className="shrink-0 text-xs text-gray-500">
                     {new Date(row.started_at * 1000).toLocaleDateString()}

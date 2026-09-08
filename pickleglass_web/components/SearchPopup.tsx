@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, X, MessageSquare, AlertCircle } from 'lucide-react'
 import { searchConversations, SessionSearchResult } from '@/utils/api'
+import { sessionTitle } from '@/utils/sessionContent'
 
 interface SearchPopupProps {
   isOpen: boolean
@@ -151,7 +152,7 @@ export default function SearchPopup({ isOpen, onClose }: SearchPopupProps) {
                       <MessageSquare className="h-5 w-5 text-gray-400 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-medium text-gray-900 truncate">
-                          {result.title || 'Untitled Conversation'}
+                          {sessionTitle(result)}
                         </h3>
                         {result.snippet && (
                           <p className="mt-1 text-sm text-gray-600 line-clamp-2">{result.snippet}</p>

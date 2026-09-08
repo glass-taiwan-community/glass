@@ -7,7 +7,11 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    router.push('/personalize')
+    // Activity, not Personalize: the reason to open the web GUI is to look at past sessions,
+    // whereas Personalize is configuration you touch once. `replace` rather than `push` so this
+    // redirect leaves no history entry - with `push`, Back from the landing page returns here and
+    // is immediately redirected forward again, which reads as a broken Back button.
+    router.replace('/activity')
   }, [router])
 
   return (

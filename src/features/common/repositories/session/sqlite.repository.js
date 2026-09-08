@@ -2,7 +2,14 @@ const sqliteClient = require('../../services/sqliteClient');
 
 function getById(id) {
     const db = sqliteClient.getDb();
-    return db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
+    // Joins summaries only to feed DERIVED_TITLE, so the detail page heading matches the name the
+    // list showed. Landing on a session whose title changed on the way in is disorienting.
+    return db.prepare(`
+        SELECT s.*, ${DERIVED_TITLE} AS display_title
+        FROM sessions s
+        LEFT JOIN summaries su ON su.session_id = s.id
+        WHERE s.id = ?
+    `).get(id);
 }
 
 function create(uid, type = 'ask') {
@@ -29,8 +36,37 @@ function create(uid, type = 'ask') {
  * never mixed: the live snapshot only covers the last 30 turns, so a card that showed a live
  * tldr without saying so would claim to summarise a meeting it only saw the end of.
  */
+/**
+ * A title worth showing, derived when the stored one is the auto-generated placeholder.
+ *
+ * create() names every session `Session @ <time>` and nothing ever renames it, so on a real
+ * database all 182 titles are timestamps - useless for telling sessions apart and useless to
+ * search. Derived rather than backfilled into the column, because most sessions predate the
+ * automatic final-summary feature and will never get one: a derivation with fallbacks works on
+ * all of them today, a backfill from summaries would reach fewer than a quarter.
+ *
+ * Falls back through the artifacts in descending order of how well they characterise a session,
+ * ending at its first words - which is still far more identifying than a clock time. NULL when a
+ * session has no content at all; callers then keep the stored title.
+ */
+const DERIVED_TITLE = `
+    CASE
+        WHEN s.title IS NOT NULL AND s.title NOT LIKE 'Session @ %' THEN s.title
+        ELSE COALESCE(
+            NULLIF(TRIM(su.final_tldr), ''),
+            NULLIF(TRIM(su.tldr), ''),
+            (SELECT t.text FROM transcripts t
+              WHERE t.session_id = s.id AND TRIM(t.text) <> '' ORDER BY t.start_at LIMIT 1),
+            (SELECT m.content FROM ai_messages m
+              WHERE m.session_id = s.id AND m.role = 'user' AND TRIM(m.content) <> ''
+              ORDER BY m.sent_at LIMIT 1)
+        )
+    END
+`;
+
 const SESSION_LIST_COLUMNS = `
     s.id, s.uid, s.title, s.session_type, s.started_at, s.ended_at, s.sync_state, s.updated_at,
+    ${DERIVED_TITLE} AS display_title,
     CASE WHEN su.final_generated_at IS NOT NULL THEN su.final_tldr ELSE su.tldr END AS tldr,
     CASE WHEN su.final_generated_at IS NOT NULL THEN 1 ELSE 0 END AS summary_is_final,
     (SELECT COUNT(*) FROM transcripts t WHERE t.session_id = s.id) AS transcript_count,
@@ -249,19 +285,65 @@ function touch(id) {
     return { changes: result.changes };
 }
 
+/**
+ * How long a session may sit with no new content before it is treated as finished.
+ *
+ * Chosen from the gap distribution in a real 182-session database: 16 sessions contain a gap
+ * over 20 minutes but only 11 contain one over 60, and that count is unchanged at 120 minutes.
+ * The gaps between 20 and 60 minutes are breaks inside one sitting; the ones past an hour are a
+ * different working period entirely - in the worst case a session held a meeting and a question
+ * asked 18 hours apart, which made its "duration" 18 hours and put unrelated material under one
+ * heading.
+ */
+const SESSION_IDLE_TIMEOUT_SECONDS = 60 * 60;
+
+/**
+ * When a session last received actual content.
+ *
+ * Deliberately not `updated_at`: touch() bumps that every time a session is merely looked up, so
+ * it measures attention rather than activity and an idle session would never look idle. Falls
+ * back to `started_at` for a session that never recorded anything.
+ *
+ * @param {object} db - Open database
+ * @param {string} sessionId
+ * @returns {number} Unix seconds
+ */
+function lastActivityAt(db, sessionId) {
+    const row = db.prepare(`
+        SELECT MAX(at) AS at FROM (
+            SELECT MAX(start_at) AS at FROM transcripts WHERE session_id = @id
+            UNION ALL SELECT MAX(sent_at) FROM ai_messages WHERE session_id = @id
+            UNION ALL SELECT started_at FROM sessions WHERE id = @id
+        )
+    `).get({ id: sessionId });
+    return row?.at ?? 0;
+}
+
 function getOrCreateActive(uid, requestedType = 'ask') {
     const db = sqliteClient.getDb();
-    
+
     // 1. Look for ANY active session for the user (ended_at IS NULL).
     //    Prefer 'listen' sessions over 'ask' sessions to ensure continuity.
     const findQuery = `
-        SELECT id, session_type FROM sessions 
+        SELECT id, session_type FROM sessions
         WHERE uid = ? AND ended_at IS NULL
         ORDER BY CASE session_type WHEN 'listen' THEN 1 WHEN 'ask' THEN 2 ELSE 3 END
         LIMIT 1
     `;
 
-    const activeSession = db.prepare(findQuery).get(uid);
+    let activeSession = db.prepare(findQuery).get(uid);
+
+    // 1b. A session left open across a long silence is not the same conversation. Close it and
+    //     fall through to creating a fresh one, so a session stays one sitting rather than
+    //     everything that happened between two app launches.
+    if (activeSession) {
+        const idleFor = Math.floor(Date.now() / 1000) - lastActivityAt(db, activeSession.id);
+        if (idleFor > SESSION_IDLE_TIMEOUT_SECONDS) {
+            console.log(`[Repo] Session ${activeSession.id} idle for ${Math.round(idleFor / 60)}min; ending it.`);
+            end(activeSession.id);
+            activeSession = null;
+        }
+    }
 
     if (activeSession) {
         // An active session exists.

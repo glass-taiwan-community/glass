@@ -17,6 +17,7 @@ module.exports = {
 
     ipcMain.handle('open-login-page', () => windowManager.openLoginPage());
     ipcMain.handle('open-personalize-page', () => windowManager.openLoginPage());
+    ipcMain.handle('open-web-dashboard', () => windowManager.openWebDashboard());
     ipcMain.handle('move-window-step', (event, direction) => windowManager.moveWindowStep(direction));
     ipcMain.handle('open-external', (event, url) => shell.openExternal(url));
 

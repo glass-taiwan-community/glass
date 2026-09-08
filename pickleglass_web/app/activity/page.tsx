@@ -9,6 +9,7 @@ import {
   getSessions,
   deleteSession,
 } from '@/utils/api'
+import { sessionTitle } from '@/utils/sessionContent'
 
 /**
  * Buckets a session by how a person would recall it. People remember "a few days ago", not
@@ -60,6 +61,19 @@ const metaParts = (session: Session): string[] => {
   if (session.ask_count) parts.push(`${session.ask_count} ask${session.ask_count === 1 ? '' : 's'}`)
   if (session.transcript_count) parts.push(`${session.transcript_count} lines`)
   return parts
+}
+
+/**
+ * The preview line under a card's title, or null when it would only repeat the title.
+ *
+ * `display_title` is derived from the summary, so for most sessions the tldr now *starts* with
+ * the title. Printing both wastes the only line on the card that can carry new information.
+ */
+const previewFor = (session: Session): string | null => {
+  if (!session.tldr) return null
+  const preview = session.tldr.replace(/\s+/g, ' ').trim()
+  const title = sessionTitle(session).replace(/…$/, '')
+  return preview.startsWith(title) ? null : preview
 }
 
 export default function ActivityPage() {
@@ -168,23 +182,29 @@ export default function ActivityPage() {
                               <span className={`capitalize inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${session.session_type === 'listen' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
                                 {session.session_type || 'ask'}
                               </span>
+                              {/* Sits beside the title, not on the preview line, because the
+                                  preview is dropped when the title came from the same summary -
+                                  and this warning must not disappear with it. */}
+                              {session.tldr && session.summary_is_final === 0 && (
+                                <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                  即時摘要（部分）
+                                </span>
+                              )}
                               <Link
                                 href={`/activity/details?sessionId=${session.id}`}
                                 className="text-lg font-medium text-gray-900 hover:underline truncate"
                               >
-                                {session.title || `Conversation - ${new Date(session.started_at * 1000).toLocaleDateString()}`}
+                                {sessionTitle(session)}
                               </Link>
                             </div>
 
-                            {/* The preview line is what makes a card identifiable - the title is
-                                usually auto-generated. A live summary is labelled, because it only
-                                covers the last stretch of the session. */}
-                            {session.tldr && (
+                            {/* Shown only when it adds something. The title is now derived from
+                                the summary for most sessions, so repeating the tldr underneath
+                                printed the same sentence twice and wasted the one line that could
+                                have told the reader something new. */}
+                            {previewFor(session) && (
                               <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-                                {session.summary_is_final === 0 && (
-                                  <span className="text-amber-700 font-medium">即時摘要（部分）· </span>
-                                )}
-                                {session.tldr}
+                                {previewFor(session)}
                               </p>
                             )}
 

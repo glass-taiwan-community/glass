@@ -1181,12 +1181,27 @@ export class SettingsView extends LitElement {
         window.api.settingsView.moveWindowStep('right');
     }
 
+    /** Opens Personalize, where presets are created. Keep this pointed there. */
     async handlePersonalize() {
         console.log('Personalize clicked');
         try {
             await window.api.settingsView.openPersonalizePage();
         } catch (error) {
             console.error('Failed to open personalize page:', error);
+        }
+    }
+
+    /**
+     * Opens the web dashboard at Activity - the reason someone opens the web GUI is to look at
+     * past sessions. Deliberately not the same handler as handlePersonalize(): the "Create your
+     * first preset" link shares that one, and presets are created on Personalize.
+     */
+    async handleOpenDashboard() {
+        console.log('Open Dashboard clicked');
+        try {
+            await window.api.settingsView.openDashboard();
+        } catch (error) {
+            console.error('Failed to open dashboard:', error);
         }
     }
 
@@ -1556,8 +1571,8 @@ export class SettingsView extends LitElement {
                 </div>
 
                 <div class="buttons-section">
-                    <button class="settings-button full-width" @click=${this.handlePersonalize}>
-                        <span>Personalize / Meeting Notes</span>
+                    <button class="settings-button full-width" @click=${this.handleOpenDashboard}>
+                        <span>Open Dashboard</span>
                     </button>
                     <button class="settings-button full-width" @click=${this.handleToggleSttLanguage} ?disabled=${this.sttLanguageLoading}>
                         <span>Transcription: ${this.sttLanguage === 'zh' ? '繁體中文' : 'English'}</span>
