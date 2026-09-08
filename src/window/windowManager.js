@@ -469,6 +469,22 @@ const openLoginPage = () => {
     console.log('Opening personalization page:', personalizeUrl);
 };
 
+/**
+ * Opens the web dashboard at Activity.
+ *
+ * Separate from openLoginPage() rather than a change to it: that one is wired to the
+ * `open-login-page` channel, and a login flow that lands on a list of past sessions would be
+ * wrong. The "Personalize / Meeting Notes" button is the only live caller of this path, and the
+ * reason to press it is to look at past sessions - the same reason the web GUI's own landing
+ * route now points at Activity. Personalize stays one click away in the sidebar.
+ */
+const openWebDashboard = () => {
+    const webUrl = process.env.pickleglass_WEB_URL || 'http://localhost:3000';
+    const dashboardUrl = `${webUrl}/activity`;
+    shell.openExternal(dashboardUrl);
+    console.log('Opening web dashboard:', dashboardUrl);
+};
+
 
 function createFeatureWindows(header, namesToCreate) {
     // if (windowPool.has('listen')) return;
@@ -871,6 +887,7 @@ module.exports = {
     hideSettingsWindow,
     cancelHideSettingsWindow,
     openLoginPage,
+    openWebDashboard,
     moveWindowStep,
     handleHeaderStateChanged,
     handleHeaderAnimationFinished,
