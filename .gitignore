@@ -112,4 +112,9 @@ data/*.db-wal
 # Build output
 out/
 dist/
-build/ test-results/
+# One pattern per line: these two shared a line, which made git look for a single directory
+# literally named "build test-results" and ignore neither. public/build (esbuild's renderer
+# bundle) and test-results have been showing up as untracked ever since.
+build/
+test-results/
+playwright-report/
