@@ -92,3 +92,44 @@ export function buildTimeline(transcripts: Transcript[], messages: AiMessage[]):
   }
   return timeline
 }
+
+/** Longest title shown before it is cut. Cards truncate visually too; this bounds the string. */
+const TITLE_MAX = 64
+
+/** A sentence ending, in the scripts this app actually sees. */
+const SENTENCE_END = /[.!?。！？\n]/
+
+/**
+ * A title worth reading for a session.
+ *
+ * Sessions are created as `Session @ 2:02:40 AM` and never renamed, so the stored title tells a
+ * reader nothing. The server derives a replacement from the session's own content
+ * (`display_title`); this trims it to a headline - a tldr is a paragraph, not a title.
+ *
+ * Falls back to the stored title, then to the date, so something always renders.
+ *
+ * @param session - Anything carrying `display_title`, `title` and `started_at`
+ * @returns A single line suitable for a heading
+ */
+export function sessionTitle(session: {
+  display_title?: string | null
+  title?: string | null
+  started_at?: number
+}): string {
+  const source = (session.display_title || session.title || '').replace(/\s+/g, ' ').trim()
+
+  if (!source) {
+    return session.started_at
+      ? `Conversation - ${new Date(session.started_at * 1000).toLocaleDateString()}`
+      : 'Untitled conversation'
+  }
+  if (source.length <= TITLE_MAX) return source
+
+  // Prefer a clean sentence break when one falls inside the budget; a title cut mid-clause reads
+  // worse than a slightly shorter one.
+  const head = source.slice(0, TITLE_MAX)
+  const cut = head.search(SENTENCE_END)
+  if (cut > TITLE_MAX / 2) return head.slice(0, cut).trim()
+
+  return `${head.trim()}…`
+}

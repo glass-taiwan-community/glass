@@ -33,6 +33,11 @@ export interface Session {
   // Content-derived fields the Activity cards need to be identifiable. Optional because the
   // Firebase listing cannot afford to compute them (summaries live in per-session
   // sub-collections), so every consumer must render correctly without them.
+  /**
+   * A readable title derived from the session's own content, because the stored `title` is
+   * always the auto-generated `Session @ <time>`. Absent in Firebase mode; render `title` then.
+   */
+  display_title?: string | null;
   tldr?: string | null;
   /** 1 when `tldr` came from the whole-session summary, 0 when it came from the live snapshot. */
   summary_is_final?: 0 | 1;
@@ -62,6 +67,7 @@ export interface SessionSearchResponse {
 export interface SessionActionItems {
   session_id: string;
   title: string;
+  display_title?: string | null;
   started_at: number;
   session_type: string;
   /** Only final summaries reach this view - the live `action_json` is not action items. */
