@@ -214,7 +214,7 @@ export class SettingsView extends LitElement {
             border-color: rgba(255, 59, 48, 0.4);
         }
 
-        .move-buttons, .bottom-buttons {
+        .bottom-buttons {
             display: flex;
             gap: 4px;
         }
@@ -244,6 +244,37 @@ export class SettingsView extends LitElement {
         .preset-section {
             padding: 6px 0;
             border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /*
+         * Collapsible section header. Generalised from .preset-header, which had the same shape
+         * already; the whole row is the hit target rather than just the arrow, because a 10px
+         * glyph is a poor click target in a 240px-wide window.
+         */
+        .collapsible-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 2px;
+            margin-top: 4px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsible-header:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .collapsible-title {
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .collapsible-arrow {
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.5);
         }
 
         .preset-header {
@@ -498,10 +529,10 @@ export class SettingsView extends LitElement {
         presets: { type: Array, state: true },
         selectedPreset: { type: Object, state: true },
         showPresets: { type: Boolean, state: true },
-        autoUpdateEnabled: { type: Boolean, state: true },
+        showCommonSettings: { type: Boolean, state: true },
+        showApiKeys: { type: Boolean, state: true },
         sttLanguage: { type: String, state: true },
         sttLanguageLoading: { type: Boolean, state: true },
-        autoUpdateLoading: { type: Boolean, state: true },
         // Ollama related properties
         ollamaStatus: { type: Object, state: true },
         ollamaModels: { type: Array, state: true },
@@ -538,6 +569,10 @@ export class SettingsView extends LitElement {
         this.presets = [];
         this.selectedPreset = null;
         this.showPresets = false;
+        // Restored per section: someone in the middle of entering an API key should not have to
+        // reopen that section on every visit to the settings window.
+        this.showCommonSettings = SettingsView._readCollapsed('commonSettings');
+        this.showApiKeys = SettingsView._readCollapsed('apiKeys');
         // Ollama related
         this.ollamaStatus = { installed: false, running: false };
         this.ollamaModels = [];
@@ -546,27 +581,10 @@ export class SettingsView extends LitElement {
         this.whisperModels = [];
         this.whisperProgressTracker = null; // Will be initialized when needed
         this.handleUsePicklesKey = this.handleUsePicklesKey.bind(this)
-        this.autoUpdateEnabled = true;
-        this.autoUpdateLoading = true;
         this.sttLanguage = 'en';
         this.sttLanguageLoading = true;
         this.loadInitialData();
         //////// after_modelStateService ////////
-    }
-
-    async loadAutoUpdateSetting() {
-        if (!window.api) return;
-        this.autoUpdateLoading = true;
-        try {
-            const enabled = await window.api.settingsView.getAutoUpdate();
-            this.autoUpdateEnabled = enabled;
-            console.log('Auto-update setting loaded:', enabled);
-        } catch (e) {
-            console.error('Error loading auto-update setting:', e);
-            this.autoUpdateEnabled = true; // fallback
-        }
-        this.autoUpdateLoading = false;
-        this.requestUpdate();
     }
 
     async loadSttLanguageSetting() {
@@ -598,25 +616,6 @@ export class SettingsView extends LitElement {
             console.error('Error toggling STT language:', e);
         }
         this.sttLanguageLoading = false;
-        this.requestUpdate();
-    }
-
-    async handleToggleAutoUpdate() {
-        if (!window.api || this.autoUpdateLoading) return;
-        this.autoUpdateLoading = true;
-        this.requestUpdate();
-        try {
-            const newValue = !this.autoUpdateEnabled;
-            const result = await window.api.settingsView.setAutoUpdate(newValue);
-            if (result && result.success) {
-                this.autoUpdateEnabled = newValue;
-            } else {
-                console.error('Failed to update auto-update setting');
-            }
-        } catch (e) {
-            console.error('Error toggling auto-update:', e);
-        }
-        this.autoUpdateLoading = false;
         this.requestUpdate();
     }
 
@@ -982,7 +981,6 @@ export class SettingsView extends LitElement {
         this.setupEventListeners();
         this.setupIpcListeners();
         this.setupWindowResize();
-        this.loadAutoUpdateSetting();
         this.loadSttLanguageSetting();
         // Force one height calculation immediately (innerHeight may be 0 at first)
         setTimeout(() => this.updateScrollHeight(), 0);
@@ -1023,8 +1021,7 @@ export class SettingsView extends LitElement {
             } else {
                 this.firebaseUser = null;
             }
-            this.loadAutoUpdateSetting();
-            this.loadSttLanguageSetting();
+                this.loadSttLanguageSetting();
             // Reload model settings when user state changes (Firebase login/logout)
             this.loadInitialData();
         };
@@ -1136,10 +1133,29 @@ export class SettingsView extends LitElement {
             { name: 'Listen / Stop / Done', accelerator: this.shortcuts.toggleListenSession },
             { name: 'Snap Left', accelerator: this.shortcuts.edgeSnapLeft },
             { name: 'Snap Right', accelerator: this.shortcuts.edgeSnapRight },
-            { name: 'Snap Up', accelerator: this.shortcuts.edgeSnapUp },
-            { name: 'Snap Down', accelerator: this.shortcuts.edgeSnapDown },
+            // edgeSnapUp / edgeSnapDown are in shortcutsService's RETIRED_ACTIONS - their keys
+            // were reclaimed for scrolling - so listing them only ever rendered "N/A".
             { name: 'Insights / Transcript', accelerator: this.shortcuts.toggleListenView },
+            // The Move buttons that used to sit in the actions list are gone; without this row
+            // moving the window would be a capability with nothing anywhere pointing at it.
+            { name: 'Move Window', accelerator: this.shortcuts.moveLeft, keysOverride: 'arrows' },
         ];
+    }
+
+    /**
+     * Renders the modifier of `accelerator` followed by all four arrows.
+     *
+     * moveUp/Down/Left/Right share one modifier and differ only by direction, so four rows would
+     * repeat the same key three times for no added information.
+     */
+    renderArrowFamilyKeys(accelerator) {
+        if (!accelerator) return html`N/A`;
+        const modifiers = accelerator.split('+').slice(0, -1);
+        const keyMap = { Cmd: '⌘', Command: '⌘', Ctrl: '⌃', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧' };
+        return html`
+            ${modifiers.map(key => html`<span class="shortcut-key">${keyMap[key] || key}</span>`)}
+            ${['←', '↑', '↓', '→'].map(arrow => html`<span class="shortcut-key">${arrow}</span>`)}
+        `;
     }
 
     renderShortcutKeys(accelerator) {
@@ -1161,6 +1177,58 @@ export class SettingsView extends LitElement {
         return html`${keys.map(key => html`<span class="shortcut-key">${keyMap[key] || key}</span>`)}`;
     }
 
+    /**
+     * Reads a section's remembered open state.
+     *
+     * Storage can throw (private mode, blocked site data) and the value can be absent, so both
+     * degrade to collapsed - the state that keeps the window short.
+     *
+     * @param {string} key - Section identifier
+     * @returns {boolean}
+     */
+    static _readCollapsed(key) {
+        try {
+            return localStorage.getItem(`glass.settings.open.${key}`) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    /** Remembers a section's open state; a storage failure must never break the toggle. */
+    static _writeCollapsed(key, open) {
+        try {
+            localStorage.setItem(`glass.settings.open.${key}`, open ? '1' : '0');
+        } catch {
+            /* not important enough to surface */
+        }
+    }
+
+    toggleCommonSettings() {
+        this.showCommonSettings = !this.showCommonSettings;
+        SettingsView._writeCollapsed('commonSettings', this.showCommonSettings);
+    }
+
+    toggleApiKeys() {
+        this.showApiKeys = !this.showApiKeys;
+        SettingsView._writeCollapsed('apiKeys', this.showApiKeys);
+    }
+
+    /**
+     * A section header that expands and collapses on click.
+     *
+     * @param {string} title
+     * @param {boolean} expanded
+     * @param {Function} onToggle
+     */
+    renderCollapsibleHeader(title, expanded, onToggle) {
+        return html`
+            <div class="collapsible-header" @click=${onToggle}>
+                <span class="collapsible-title">${title}</span>
+                <span class="collapsible-arrow">${expanded ? '▼' : '▶'}</span>
+            </div>
+        `;
+    }
+
     togglePresets() {
         this.showPresets = !this.showPresets;
     }
@@ -1169,16 +1237,6 @@ export class SettingsView extends LitElement {
         this.selectedPreset = preset;
         // Here you could implement preset application logic
         console.log('Selected preset:', preset);
-    }
-
-    handleMoveLeft() {
-        console.log('Move Left clicked');
-        window.api.settingsView.moveWindowStep('left');
-    }
-
-    handleMoveRight() {
-        console.log('Move Right clicked');
-        window.api.settingsView.moveWindowStep('right');
     }
 
     /** Opens Personalize, where presets are created. Keep this pointed there. */
@@ -1488,9 +1546,38 @@ export class SettingsView extends LitElement {
                     </div>
                 </div>
 
-                ${apiKeyManagementHTML}
-                ${modelSelectionHTML}
+                ${/* Actions first: these are the reason the window is opened. */ ''}
+                <div class="buttons-section">
+                    <button class="settings-button full-width" @click=${this.handleOpenDashboard}>
+                        <span>Open Dashboard</span>
+                    </button>
+                    <button class="settings-button full-width" @click=${this.handleToggleSttLanguage} ?disabled=${this.sttLanguageLoading}>
+                        <span>Transcription: ${this.sttLanguage === 'zh' ? '繁體中文' : 'English'}</span>
+                    </button>
+                    <button class="settings-button full-width" @click=${this.handleToggleInvisibility}>
+                        <span>${this.isContentProtectionOn ? 'Disable Invisibility' : 'Enable Invisibility'}</span>
+                    </button>
+                    
+                    <div class="bottom-buttons">
+                        ${this.firebaseUser
+                            ? html`
+                                <button class="settings-button half-width danger" @click=${this.handleFirebaseLogout}>
+                                    <span>Logout</span>
+                                </button>
+                                `
+                            : html`
+                                <button class="settings-button half-width" @click=${this.handleUsePicklesKey}>
+                                    <span>Login</span>
+                                </button>
+                                `
+                        }
+                        <button class="settings-button half-width danger" @click=${this.handleQuit}>
+                            <span>Quit</span>
+                        </button>
+                    </div>
+                </div>
 
+                ${/* The shortcut cheatsheet stays expanded - it is glanced at, not clicked. */ ''}
                 <div class="buttons-section" style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 6px; margin-top: 6px;">
                     <button class="settings-button full-width" @click=${this.openShortcutEditor}>
                         Edit Shortcuts
@@ -1503,7 +1590,9 @@ export class SettingsView extends LitElement {
                         <div class="shortcut-item">
                             <span class="shortcut-name">${shortcut.name}</span>
                             <div class="shortcut-keys">
-                                ${this.renderShortcutKeys(shortcut.accelerator)}
+                                ${shortcut.keysOverride === 'arrows'
+                                    ? this.renderArrowFamilyKeys(shortcut.accelerator)
+                                    : this.renderShortcutKeys(shortcut.accelerator)}
                             </div>
                         </div>
                     `)}
@@ -1527,6 +1616,12 @@ export class SettingsView extends LitElement {
                     </div>
                 ` : ''}
 
+
+
+                ${/* Collapsed by default: consulted occasionally, and 198px when open. */ ''}
+                ${this.renderCollapsibleHeader('Preferences', this.showCommonSettings, this.toggleCommonSettings)}
+                <div class="${this.showCommonSettings ? '' : 'hidden'}">
+                    ${modelSelectionHTML}
                 <div class="shortcut-item">
                     <span class="shortcut-name">Save screen captures to history</span>
                     <div class="shortcut-keys">
@@ -1540,7 +1635,6 @@ export class SettingsView extends LitElement {
                         </span>
                     </div>
                 </div>
-
                 <div class="preset-section">
                     <div class="preset-header">
                         <span class="preset-title">
@@ -1569,48 +1663,12 @@ export class SettingsView extends LitElement {
                         `)}
                     </div>
                 </div>
+                </div>
 
-                <div class="buttons-section">
-                    <button class="settings-button full-width" @click=${this.handleOpenDashboard}>
-                        <span>Open Dashboard</span>
-                    </button>
-                    <button class="settings-button full-width" @click=${this.handleToggleSttLanguage} ?disabled=${this.sttLanguageLoading}>
-                        <span>Transcription: ${this.sttLanguage === 'zh' ? '繁體中文' : 'English'}</span>
-                    </button>
-                    <button class="settings-button full-width" @click=${this.handleToggleAutoUpdate} ?disabled=${this.autoUpdateLoading}>
-                        <span>Automatic Updates: ${this.autoUpdateEnabled ? 'On' : 'Off'}</span>
-                    </button>
-                    
-                    <div class="move-buttons">
-                        <button class="settings-button half-width" @click=${this.handleMoveLeft}>
-                            <span>← Move</span>
-                        </button>
-                        <button class="settings-button half-width" @click=${this.handleMoveRight}>
-                            <span>Move →</span>
-                        </button>
-                    </div>
-                    
-                    <button class="settings-button full-width" @click=${this.handleToggleInvisibility}>
-                        <span>${this.isContentProtectionOn ? 'Disable Invisibility' : 'Enable Invisibility'}</span>
-                    </button>
-                    
-                    <div class="bottom-buttons">
-                        ${this.firebaseUser
-                            ? html`
-                                <button class="settings-button half-width danger" @click=${this.handleFirebaseLogout}>
-                                    <span>Logout</span>
-                                </button>
-                                `
-                            : html`
-                                <button class="settings-button half-width" @click=${this.handleUsePicklesKey}>
-                                    <span>Login</span>
-                                </button>
-                                `
-                        }
-                        <button class="settings-button half-width danger" @click=${this.handleQuit}>
-                            <span>Quit</span>
-                        </button>
-                    </div>
+                ${/* Collapsed by default: 620px of one-time setup, the largest block here. */ ''}
+                ${this.renderCollapsibleHeader('API Keys & Providers', this.showApiKeys, this.toggleApiKeys)}
+                <div class="${this.showApiKeys ? '' : 'hidden'}">
+                    ${apiKeyManagementHTML}
                 </div>
             </div>
         `;
