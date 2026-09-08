@@ -100,22 +100,22 @@ export default function SearchPopup({ isOpen, onClose }: SearchPopupProps) {
       className="fixed inset-0 bg-black bg-opacity-25 flex items-start justify-center pt-16 z-50"
       onClick={handleBackgroundClick}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         <div className="flex items-center px-4 py-3">
-          <Search className="h-5 w-5 text-gray-400 mr-3 flex-shrink-0" />
+          <Search className="h-5 w-5 text-gray-400 dark:text-gray-500 mr-3 flex-shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search summaries, questions and transcripts…"
-            className="flex-1 text-gray-900 text-base border-0 focus:outline-none placeholder-gray-400 bg-transparent"
+            className="flex-1 text-gray-900 dark:text-gray-100 text-base border-0 focus:outline-none placeholder-gray-400 dark:placeholder-gray-500 bg-transparent"
           />
           <button
             onClick={onClose}
-            className="ml-3 p-1 hover:bg-gray-100 rounded-full flex-shrink-0"
+            className="ml-3 p-1 hover:bg-gray-100 hover:dark:bg-gray-800 rounded-full flex-shrink-0"
           >
-            <X className="h-4 w-4 text-gray-400" />
+            <X className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           </button>
         </div>
 
@@ -123,41 +123,41 @@ export default function SearchPopup({ isOpen, onClose }: SearchPopupProps) {
             so a title-only search finding nothing means something quite different from a content
             search finding nothing - the user needs to be able to tell those apart. */}
         {scope === 'title' && searchQuery.trim() && (
-          <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 text-xs text-amber-800">
+          <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/30 border-t border-amber-100 dark:border-amber-900 text-xs text-amber-800">
             Searching titles only in cloud mode — transcripts and answers are encrypted.
           </div>
         )}
 
         {searchQuery.trim() && (
-          <div className="max-h-[400px] overflow-y-auto border-t border-gray-100">
+          <div className="max-h-[400px] overflow-y-auto border-t border-gray-100 dark:border-gray-800">
             {isLoading ? (
               <div className="p-6 text-center">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-3"></div>
-                <p className="text-gray-500 text-sm">Searching…</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">Searching…</p>
               </div>
             ) : error ? (
               <div className="p-6 text-center">
                 <AlertCircle className="h-8 w-8 text-red-300 mx-auto mb-3" />
-                <p className="text-red-600 text-sm">{error}</p>
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
               </div>
             ) : searchResults.length > 0 ? (
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
                 {searchResults.map(result => (
                   <div
                     key={result.id}
-                    className="p-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                    className="p-3 hover:bg-gray-50 hover:dark:bg-gray-950 cursor-pointer transition-colors"
                     onClick={() => openSession(result.id)}
                   >
                     <div className="flex items-start gap-3">
-                      <MessageSquare className="h-5 w-5 text-gray-400 mt-0.5 shrink-0" />
+                      <MessageSquare className="h-5 w-5 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-medium text-gray-900 truncate">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           {sessionTitle(result)}
                         </h3>
                         {result.snippet && (
-                          <p className="mt-1 text-sm text-gray-600 line-clamp-2">{result.snippet}</p>
+                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">{result.snippet}</p>
                         )}
-                        <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-500">
+                        <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                           <span>{new Date(result.started_at * 1000).toLocaleString()}</span>
                           {result.snippet_source && (
                             <>
@@ -173,8 +173,8 @@ export default function SearchPopup({ isOpen, onClose }: SearchPopupProps) {
               </div>
             ) : (
               <div className="p-6 text-center">
-                <Search className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">No results found for &ldquo;{searchQuery}&rdquo;</p>
+                <Search className="h-8 w-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-500 dark:text-gray-400 text-sm">No results found for &ldquo;{searchQuery}&rdquo;</p>
               </div>
             )}
           </div>

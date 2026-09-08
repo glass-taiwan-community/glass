@@ -150,19 +150,19 @@ export default function PersonalizePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-gray-500">Loading...</div>
+        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
         <div className="px-8 pt-8 pb-6">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-sm text-gray-500 mb-2">Presets</p>
-              <h1 className="text-3xl font-bold text-gray-900">Personalize</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Presets</p>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Personalize</h1>
             </div>
             <div className="flex gap-2">
               <button
@@ -201,12 +201,12 @@ export default function PersonalizePage() {
         </div>
       </div>
 
-      <div className={`transition-colors duration-300 ${showPresets ? 'bg-gray-50' : 'bg-white'}`}>
+      <div className={`transition-colors duration-300 ${showPresets ? 'bg-gray-50 dark:bg-gray-950' : 'bg-white dark:bg-gray-900'}`}>
         <div className="px-8 py-6">
           <div className="mb-6">
             <button
               onClick={() => setShowPresets(!showPresets)}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
+              className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 hover:dark:text-gray-200 text-sm font-medium transition-colors"
             >
               <ChevronDown 
                 className={`h-4 w-4 transition-transform duration-200 ${showPresets ? 'rotate-180' : ''}`}
@@ -222,23 +222,23 @@ export default function PersonalizePage() {
                   key={preset.id}
                   onClick={() => handlePresetClick(preset)}
                   className={`
-                    p-4 rounded-lg cursor-pointer transition-all duration-200 bg-white
+                    p-4 rounded-lg cursor-pointer transition-all duration-200 bg-white dark:bg-gray-900
                     h-48 flex flex-col shadow-sm hover:shadow-md relative
                     ${selectedPreset?.id === preset.id
                       ? 'border-2 border-blue-500 shadow-md'
-                      : 'border border-gray-200 hover:border-gray-300'
+                      : 'border border-gray-200 dark:border-gray-800 hover:border-gray-300 hover:dark:border-gray-700'
                     }
                   `}
                 >
                   {preset.is_default === 1 && (
-                    <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full">
+                    <div className="absolute top-2 right-2 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-200 text-xs px-2 py-1 rounded-full">
                       Default
                     </div>
                   )}
-                  <h3 className="font-semibold text-gray-900 mb-3 text-center text-sm">
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3 text-center text-sm">
                     {preset.title}
                   </h3>
-                  <p className="text-xs text-gray-600 leading-relaxed flex-1 overflow-hidden">
+                  <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed flex-1 overflow-hidden">
                     {preset.prompt.substring(0, 100) + (preset.prompt.length > 100 ? '...' : '')}
                   </p>
                 </div>
@@ -248,13 +248,13 @@ export default function PersonalizePage() {
         </div>
       </div>
 
-      <div className="flex-1 bg-white">
+      <div className="flex-1 bg-white dark:bg-gray-900">
         <div className="h-full px-8 py-6 flex flex-col">
           {selectedPreset?.is_default === 1 && (
-            <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-yellow-400 rounded-full"></div>
-                <p className="text-sm text-yellow-800">
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
                   <strong>This is a default preset and cannot be edited.</strong> 
                   Use the "Duplicate" button above to create an editable copy, or create a new preset.
                 </p>
@@ -264,7 +264,7 @@ export default function PersonalizePage() {
           <textarea
             value={editorContent}
             onChange={handleEditorChange}
-            className="w-full flex-1 text-sm text-gray-900 border-0 resize-none focus:outline-none bg-transparent font-mono leading-relaxed"
+            className="w-full flex-1 text-sm text-gray-900 dark:text-gray-100 border-0 resize-none focus:outline-none bg-transparent font-mono leading-relaxed"
             placeholder="Select a preset or type directly..."
             readOnly={selectedPreset?.is_default === 1}
           />

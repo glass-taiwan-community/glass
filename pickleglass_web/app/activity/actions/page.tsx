@@ -83,35 +83,35 @@ export default function ActionItemsPage() {
 
   if (!userInfo) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="max-w-3xl mx-auto px-8 py-12">
-        <Link href="/activity" className="text-sm text-gray-500 hover:text-gray-700">
+        <Link href="/activity" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:dark:text-gray-300">
           &larr; Back to Activity
         </Link>
 
         <div className="flex items-baseline justify-between mt-6 mb-8">
-          <h1 className="text-2xl font-semibold text-gray-900">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             Action Items
             {!isLoading && openCount > 0 && (
-              <span className="ml-3 text-base font-normal text-gray-500">{openCount} open</span>
+              <span className="ml-3 text-base font-normal text-gray-500 dark:text-gray-400">{openCount} open</span>
             )}
           </h1>
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
             <input
               type="checkbox"
               checked={showCompleted}
               onChange={e => setShowCompleted(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 focus:ring-blue-500"
             />
             Show completed
           </label>
@@ -120,12 +120,12 @@ export default function ActionItemsPage() {
         {isLoading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading action items...</p>
+            <p className="mt-4 text-gray-600 dark:text-gray-400">Loading action items...</p>
           </div>
         ) : error ? (
-          <div className="bg-white rounded-lg p-8 text-center text-red-600">{error}</div>
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-8 text-center text-red-600 dark:text-red-400">{error}</div>
         ) : visible.length === 0 ? (
-          <div className="text-center bg-white rounded-lg p-12 text-gray-500">
+          <div className="text-center bg-white dark:bg-gray-900 rounded-lg p-12 text-gray-500 dark:text-gray-400">
             {rows.length === 0
               ? 'No action items yet. They are extracted from Listen sessions as meetings are summarised.'
               : 'Everything is ticked off. Turn on “Show completed” to review what you closed.'}
@@ -133,15 +133,15 @@ export default function ActionItemsPage() {
         ) : (
           <div className="space-y-6">
             {visible.map(({ row, actions, completed }) => (
-              <section key={row.session_id} className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
+              <section key={row.session_id} className="bg-white dark:bg-gray-900 rounded-lg p-5 shadow-sm border border-gray-200 dark:border-gray-800">
                 <div className="flex items-baseline justify-between gap-4 mb-3">
                   <Link
                     href={`/activity/details?sessionId=${row.session_id}`}
-                    className="font-medium text-gray-900 hover:underline truncate"
+                    className="font-medium text-gray-900 dark:text-gray-100 hover:underline truncate"
                   >
                     {sessionTitle(row)}
                   </Link>
-                  <span className="shrink-0 text-xs text-gray-500">
+                  <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
                     {new Date(row.started_at * 1000).toLocaleDateString()}
                   </span>
                 </div>
@@ -158,9 +158,9 @@ export default function ActionItemsPage() {
                               type="checkbox"
                               checked={isDone}
                               onChange={() => toggle(row.session_id, action)}
-                              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 focus:ring-blue-500"
                             />
-                            <span className={isDone ? 'text-gray-400 line-through' : 'text-gray-700 group-hover:text-gray-900'}>
+                            <span className={isDone ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-700 dark:text-gray-300 group-hover:text-gray-900 group-hover:dark:text-gray-100'}>
                               {action}
                             </span>
                           </label>

@@ -25,8 +25,8 @@ const clock = (seconds: number) =>
 
 const Section = ({ title, children }: { title: string, children: React.ReactNode }) => (
     <div className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">{title}</h2>
-        <div className="text-gray-700 space-y-2">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">{title}</h2>
+        <div className="text-gray-700 dark:text-gray-300 space-y-2">
             {children}
         </div>
     </div>
@@ -37,20 +37,20 @@ function TranscriptRun({ lines }: { lines: Transcript[] }) {
 
   if (expanded) {
     return (
-      <div className="border-l-2 border-gray-200 pl-4 space-y-1.5">
+      <div className="border-l-2 border-gray-200 dark:border-gray-800 pl-4 space-y-1.5">
         {lines.length >= COLLAPSE_RUN_AT && (
           <button
             onClick={() => setExpanded(false)}
-            className="flex items-center text-xs text-gray-500 hover:text-gray-700 mb-1"
+            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:dark:text-gray-300 mb-1"
           >
             <ChevronDown className="h-3.5 w-3.5 mr-1" />
             Hide {lines.length} lines
           </button>
         )}
         {lines.map(line => (
-          <p key={line.id} className="text-sm text-gray-600">
-            <span className="text-gray-400 tabular-nums mr-2">{clock(line.start_at)}</span>
-            <span className="font-medium capitalize text-gray-700">{line.speaker}: </span>
+          <p key={line.id} className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="text-gray-400 dark:text-gray-500 tabular-nums mr-2">{clock(line.start_at)}</span>
+            <span className="font-medium capitalize text-gray-700 dark:text-gray-300">{line.speaker}: </span>
             {line.text}
           </p>
         ))}
@@ -61,12 +61,12 @@ function TranscriptRun({ lines }: { lines: Transcript[] }) {
   return (
     <button
       onClick={() => setExpanded(true)}
-      className="flex items-start w-full text-left border-l-2 border-gray-200 pl-4 py-1 group"
+      className="flex items-start w-full text-left border-l-2 border-gray-200 dark:border-gray-800 pl-4 py-1 group"
     >
-      <ChevronRight className="h-3.5 w-3.5 mr-1 mt-0.5 text-gray-400 group-hover:text-gray-600 shrink-0" />
-      <span className="text-sm text-gray-500 group-hover:text-gray-700">
+      <ChevronRight className="h-3.5 w-3.5 mr-1 mt-0.5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 group-hover:dark:text-gray-400 shrink-0" />
+      <span className="text-sm text-gray-500 dark:text-gray-400 group-hover:text-gray-700 group-hover:dark:text-gray-300">
         {lines.length} lines of conversation
-        <span className="text-gray-400"> — {lines[0].text.slice(0, 80)}…</span>
+        <span className="text-gray-400 dark:text-gray-500"> — {lines[0].text.slice(0, 80)}…</span>
       </span>
     </button>
   )
@@ -142,10 +142,10 @@ function SessionDetailsContent() {
 
   if (!userInfo || isLoading) {
     return (
-      <div className="min-h-screen bg-[#FDFCF9] flex items-center justify-center">
+      <div className="min-h-screen bg-[#FDFCF9] dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading session details...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading session details...</p>
         </div>
       </div>
     );
@@ -153,11 +153,11 @@ function SessionDetailsContent() {
 
   if (!sessionDetails) {
     return (
-        <div className="min-h-screen bg-[#FDFCF9] flex items-center justify-center">
+        <div className="min-h-screen bg-[#FDFCF9] dark:bg-gray-950 flex items-center justify-center">
             <div className="max-w-4xl mx-auto px-8 py-12 text-center">
-                <h2 className="text-2xl font-semibold text-gray-900 mb-8">Session Not Found</h2>
-                <p className="text-gray-600">The requested session could not be found.</p>
-                                    <Link href="/activity" className="mt-4 inline-block text-blue-600 hover:text-blue-800">
+                <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-8">Session Not Found</h2>
+                <p className="text-gray-600 dark:text-gray-400">The requested session could not be found.</p>
+                                    <Link href="/activity" className="mt-4 inline-block text-blue-600 dark:text-blue-400 hover:text-blue-800 hover:dark:text-blue-200">
                         &larr; Back to Activity
                     </Link>
             </div>
@@ -166,10 +166,10 @@ function SessionDetailsContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FDFCF9] text-gray-800">
+    <div className="min-h-screen bg-[#FDFCF9] dark:bg-gray-950 text-gray-800 dark:text-gray-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
             <div className="mb-8">
-                <Link href="/activity" className="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+                <Link href="/activity" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:dark:text-gray-300 flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
@@ -177,16 +177,16 @@ function SessionDetailsContent() {
                 </Link>
             </div>
 
-            <div className="bg-white p-8 rounded-xl shadow-md border border-gray-100">
+            <div className="bg-white dark:bg-gray-900 p-8 rounded-xl shadow-md border border-gray-100 dark:border-gray-800">
                 <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
                             {sessionTitle(sessionDetails.session)}
                         </h1>
-                        <div className="flex items-center text-sm text-gray-500 space-x-4">
+                        <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 space-x-4">
                             <span>{new Date(sessionDetails.session.started_at * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                             <span>{new Date(sessionDetails.session.started_at * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
-                            <span className={`capitalize px-2 py-0.5 rounded-full text-xs font-medium ${sessionDetails.session.session_type === 'listen' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                            <span className={`capitalize px-2 py-0.5 rounded-full text-xs font-medium ${sessionDetails.session.session_type === 'listen' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200' : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'}`}>
                                 {sessionDetails.session.session_type}
                             </span>
                         </div>
@@ -194,7 +194,7 @@ function SessionDetailsContent() {
                     <button
                         onClick={handleDelete}
                         disabled={deleting}
-                        className={`px-4 py-2 rounded text-sm font-medium border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 transition-colors ${deleting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`px-4 py-2 rounded text-sm font-medium border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:bg-red-900/40 transition-colors ${deleting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                         {deleting ? 'Deleting...' : 'Delete Activity'}
                     </button>
@@ -232,19 +232,19 @@ function SessionDetailsContent() {
                             below is the authority. */}
                         <div className="mb-3">
                             <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                isFinal ? 'bg-green-50 text-green-700 border border-green-200'
-                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                isFinal ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-900'
+                                        : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900'
                             }`}>
                                 {isFinal ? '完整會議摘要' : '即時摘要（部分）'}
                             </span>
                         </div>
 
-                        {view.tldr && <p className="text-lg italic text-gray-600 mb-4">"{view.tldr}"</p>}
+                        {view.tldr && <p className="text-lg italic text-gray-600 dark:text-gray-400 mb-4">"{view.tldr}"</p>}
 
                         {bullets.length > 0 &&
                             <div className="mt-4">
-                                <h3 className="font-semibold text-gray-700 mb-2">Key Points:</h3>
-                                <ul className="list-disc list-inside space-y-1 text-gray-600">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Key Points:</h3>
+                                <ul className="list-disc list-inside space-y-1 text-gray-600 dark:text-gray-400">
                                     {bullets.map((point: string, index: number) => (
                                         <li key={index}>{point}</li>
                                     ))}
@@ -257,7 +257,7 @@ function SessionDetailsContent() {
                             on it, and most never will. */}
                         {actions.length > 0 &&
                             <div className="mt-4">
-                                <h3 className="font-semibold text-gray-700 mb-2">Action Items:</h3>
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Action Items:</h3>
                                 <ul className="space-y-1.5">
                                     {actions.map((action: string, index: number) => {
                                         const done = doneActions.includes(action)
@@ -268,9 +268,9 @@ function SessionDetailsContent() {
                                                         type="checkbox"
                                                         checked={done}
                                                         onChange={() => toggleAction(action)}
-                                                        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                        className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 focus:ring-blue-500"
                                                     />
-                                                    <span className={done ? 'text-gray-400 line-through' : 'text-gray-700 group-hover:text-gray-900'}>
+                                                    <span className={done ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-700 dark:text-gray-300 group-hover:text-gray-900 group-hover:dark:text-gray-100'}>
                                                         {action}
                                                     </span>
                                                 </label>
@@ -297,26 +297,26 @@ function SessionDetailsContent() {
                                 return (
                                     <div
                                         key={message.id}
-                                        className={`rounded-lg p-3 ${isUser ? 'bg-gray-100 border border-gray-200' : 'bg-blue-50 border border-blue-100'}`}
+                                        className={`rounded-lg p-3 ${isUser ? 'bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-800' : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900'}`}
                                     >
-                                        <div className="flex items-center gap-2 mb-1 text-sm font-semibold text-gray-600">
-                                            {isUser && <HelpCircle className="h-4 w-4 text-gray-500" />}
+                                        <div className="flex items-center gap-2 mb-1 text-sm font-semibold text-gray-600 dark:text-gray-400">
+                                            {isUser && <HelpCircle className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
                                             <span>{isUser ? 'You asked' : 'AI'}</span>
-                                            <span className="font-normal text-xs text-gray-400 tabular-nums">
+                                            <span className="font-normal text-xs text-gray-400 dark:text-gray-500 tabular-nums">
                                                 {clock(message.sent_at)}
                                             </span>
                                         </div>
                                         {message.content
-                                            ? <Markdown content={message.content} className="text-gray-800" />
+                                            ? <Markdown content={message.content} className="text-gray-800 dark:text-gray-200" />
                                             : message.image_path
-                                                ? <p className="text-gray-400 italic text-sm">Screen capture</p>
+                                                ? <p className="text-gray-400 dark:text-gray-500 italic text-sm">Screen capture</p>
                                                 : null}
                                         {message.image_path && (
                                             <a href={`${getApiOrigin()}/api/ask-screenshots/${message.image_path}`} target="_blank" rel="noopener noreferrer">
                                                 <img
                                                     src={`${getApiOrigin()}/api/ask-screenshots/${message.image_path}`}
                                                     alt="Screen capture at time of question"
-                                                    className="mt-2 max-h-48 rounded border border-gray-200 hover:opacity-90 transition-opacity"
+                                                    className="mt-2 max-h-48 rounded border border-gray-200 dark:border-gray-800 hover:opacity-90 transition-opacity"
                                                 />
                                             </a>
                                         )}
@@ -335,10 +335,10 @@ function SessionDetailsContent() {
 export default function SessionDetailsPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#FDFCF9] flex items-center justify-center">
+      <div className="min-h-screen bg-[#FDFCF9] dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
     }>
