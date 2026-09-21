@@ -47,6 +47,24 @@ class VoiceAskCapture {
         this._recording = false;  // a hold is in progress; buffer samples
         this._chunks = [];
         this._startedAt = 0;
+        this._peak = 0;           // loudest sample seen during the current hold
+        this._arming = null;      // in-flight arm(), so concurrent callers coalesce
+    }
+
+    /**
+     * Whether the underlying mic track is still usable.
+     *
+     * A track can end on its own -- sleep/wake, the audio device changing, the OS reclaiming the
+     * mic -- while the AudioContext stays `running`. The processor then keeps firing and buffers
+     * silence, so a hold produces a correctly-sized clip of zeros and STT returns an empty
+     * transcript. Nothing errors, and the feature is dead until the app restarts. This is the
+     * check that makes that state recoverable.
+     * @returns {boolean}
+     */
+    _isStreamLive() {
+        if (!this._stream) return false;
+        const tracks = this._stream.getAudioTracks();
+        return tracks.length > 0 && tracks.every(t => t.readyState === 'live');
     }
 
     /**
@@ -54,7 +72,25 @@ class VoiceAskCapture {
      * are normalized. The processor runs continuously but only buffers while _recording.
      */
     async arm() {
-        if (this._armed) return;
+        if (this._armed && this._isStreamLive()) return;
+        // Coalesce concurrent callers. getUserMedia is async and three paths call arm(): the
+        // enable toggle, the start of a hold, and dead-track recovery. Without this guard two
+        // calls interleave, each builds its own AudioContext + ScriptProcessor, and only the
+        // last set of references is reachable -- the earlier processors stay connected and keep
+        // appending to the same _chunks buffer. That produced clips ~17x larger than the hold
+        // duration and Deepgram 408 SLOW_UPLOAD.
+        if (this._arming) return this._arming;
+
+        this._arming = this._armInternal().finally(() => { this._arming = null; });
+        return this._arming;
+    }
+
+    /** The actual arming work. Never call directly -- go through arm() for the guard. */
+    async _armInternal() {
+        // Unconditional: any previous graph must be dismantled before a new one is built,
+        // whether or not `_armed` still claims it is healthy.
+        this._teardown();
+        this._armed = false;
         try {
             this._stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -72,11 +108,26 @@ class VoiceAskCapture {
             this._processor.onaudioprocess = (e) => {
                 if (!this._recording) return;
                 const input = e.inputBuffer.getChannelData(0);
+                for (let i = 0; i < input.length; i++) {
+                    const a = Math.abs(input[i]);
+                    if (a > this._peak) this._peak = a;
+                }
                 const pcm16 = convertFloat32ToInt16(input);
                 this._chunks.push(arrayBufferToBase64(pcm16.buffer));
             };
             this._source.connect(this._processor);
             this._processor.connect(this._context.destination);
+            // Only flag the dead track; startHold() re-arms lazily under the guard above.
+            // Re-arming from inside the handler raced with the other arm() callers, which is
+            // what created the orphaned-processor bug. The cost of recovering lazily is roughly
+            // one second of leading audio on the first hold after a track dies -- far better
+            // than the silent capture it replaces.
+            for (const track of this._stream.getAudioTracks()) {
+                track.addEventListener('ended', () => {
+                    console.warn('[VoiceAskCapture] mic track ended -- will re-arm on next hold');
+                    this._armed = false;
+                });
+            }
             this._armed = true;
         } catch (err) {
             console.error('[VoiceAskCapture] failed to arm mic:', err);
@@ -93,8 +144,10 @@ class VoiceAskCapture {
 
     /** A hold began: start buffering. Arms the mic first if it somehow was not warm. */
     async startHold() {
-        if (!this._armed) await this.arm();
+        // Backstop for the 'ended' listener: also verify liveness at the moment of use.
+        if (!this._armed || !this._isStreamLive()) await this.arm();
         this._chunks = [];
+        this._peak = 0;
         this._startedAt = Date.now();
         this._recording = true;
         this.onStateChange(true);
@@ -110,6 +163,22 @@ class VoiceAskCapture {
         this._chunks = [];
         // Report the ACTUAL context rate; the browser may run at hardware rate.
         const sampleRate = this._context ? this._context.sampleRate : VOICE_SAMPLE_RATE;
+        // A silent clip and a failed transcription look identical downstream ("transcript empty"),
+        // so say which one happened here, where the audio actually is.
+        // Guard against the orphaned-processor class of bug returning: more audio than the hold
+        // could physically have produced means something else is writing into the same buffer.
+        const expectedBytes = Math.round((durationMs / 1000) * sampleRate * 2);
+        const actualBytes = chunks.reduce((n, c) => n + Math.floor(c.length * 3 / 4), 0);
+        if (expectedBytes > 0 && actualBytes > expectedBytes * 1.5) {
+            console.error(`[VoiceAskCapture] clip is ${(actualBytes / expectedBytes).toFixed(1)}x `
+                + `larger than the ${durationMs}ms hold allows (${actualBytes} vs ~${expectedBytes} bytes) `
+                + `-- duplicate capture graph; re-arming`);
+            this._armed = false;
+        }
+        if (this._peak < 0.001) {
+            console.warn(`[VoiceAskCapture] clip is silent (peak ${this._peak.toFixed(5)}) -- `
+                + `mic produced no signal; track state: ${this._isStreamLive() ? 'live' : 'ENDED'}`);
+        }
         try {
             if (window.api && window.api.voiceAsk && chunks.length > 0) {
                 await window.api.voiceAsk.submitAudioClip({ chunks, sampleRate, durationMs });
@@ -120,6 +189,9 @@ class VoiceAskCapture {
     }
 
     _teardown() {
+        // Detach the callback FIRST: a disconnected ScriptProcessor can still have a queued
+        // callback, and an orphan that keeps appending to _chunks is the failure this prevents.
+        try { if (this._processor) this._processor.onaudioprocess = null; } catch {}
         try { if (this._processor) this._processor.disconnect(); } catch {}
         try { if (this._source) this._source.disconnect(); } catch {}
         try { if (this._context) this._context.close(); } catch {}
