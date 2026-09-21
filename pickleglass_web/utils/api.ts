@@ -6,6 +6,7 @@ import {
   FirestoreAiMessageService, 
   FirestoreSummaryService, 
   FirestorePromptPresetService,
+  FirestoreSnippetService,
   FirestoreSession,
   FirestoreTranscript,
   FirestoreAiMessage,
@@ -123,6 +124,14 @@ export interface Summary {
   final_generated_at?: number | null;
   /** JSON array of the action-item texts the user has ticked off. Keyed by text, not index. */
   action_done_json?: string | null;
+}
+
+export interface Snippet {
+  id: string;
+  uid: string;
+  trigger_phrase: string;
+  expansion: string;
+  created_at: number;
 }
 
 export interface PromptPreset {
@@ -620,6 +629,55 @@ export const deletePreset = async (id: string): Promise<void> => {
   } else {
     const response = await apiCall(`/api/presets/${id}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Failed to delete preset');
+  }
+};
+
+export const getSnippets = async (): Promise<Snippet[]> => {
+  if (isFirebaseMode()) {
+    const uid = firebaseAuth.currentUser!.uid;
+    const rows = await FirestoreSnippetService.getSnippets(uid);
+    return rows.map(r => ({
+      id: r.id,
+      uid,
+      trigger_phrase: r.trigger_phrase,
+      expansion: r.expansion,
+      created_at: timestampToUnix(r.created_at),
+    }));
+  } else {
+    const response = await apiCall(`/api/snippets`, { method: 'GET' });
+    if (!response.ok) throw new Error('Failed to fetch snippets');
+    return response.json();
+  }
+};
+
+export const createSnippet = async (data: { trigger_phrase: string, expansion: string }): Promise<{ id: string }> => {
+  if (isFirebaseMode()) {
+    const uid = firebaseAuth.currentUser!.uid;
+    return { id: await FirestoreSnippetService.createSnippet(uid, data) };
+  } else {
+    const response = await apiCall(`/api/snippets`, { method: 'POST', body: JSON.stringify(data) });
+    if (!response.ok) throw new Error('Failed to create snippet');
+    return response.json();
+  }
+};
+
+export const updateSnippet = async (id: string, data: { trigger_phrase: string, expansion: string }): Promise<void> => {
+  if (isFirebaseMode()) {
+    const uid = firebaseAuth.currentUser!.uid;
+    await FirestoreSnippetService.updateSnippet(uid, id, data);
+  } else {
+    const response = await apiCall(`/api/snippets/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    if (!response.ok) throw new Error('Failed to update snippet');
+  }
+};
+
+export const deleteSnippet = async (id: string): Promise<void> => {
+  if (isFirebaseMode()) {
+    const uid = firebaseAuth.currentUser!.uid;
+    await FirestoreSnippetService.deleteSnippet(uid, id);
+  } else {
+    const response = await apiCall(`/api/snippets/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete snippet');
   }
 };
 

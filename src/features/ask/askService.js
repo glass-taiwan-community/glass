@@ -22,6 +22,7 @@ const util = require('util');
 const execFile = util.promisify(require('child_process').execFile);
 const { desktopCapturer } = require('electron');
 const modelStateService = require('../common/services/modelStateService');
+const latencyProbe = require('../common/services/latencyProbe');
 
 // Try to load sharp, but don't fail if it's not available
 let sharp;
@@ -305,6 +306,7 @@ class AskService {
      * @returns {Promise<{success: boolean, response?: string, error?: string}>}
      */
     async sendMessage(userPrompt, conversationHistoryRaw=[], opts={}) {
+        latencyProbe.mark('ask-entry');
         internalBridge.emit('window:requestVisibility', { name: 'ask', visible: true });
         this.state = {
             ...this.state,
@@ -350,6 +352,7 @@ class AskService {
             }
 
             const screenshotResult = await captureScreenshot({ quality: 'medium', saveReadableTo });
+        latencyProbe.mark('screenshot');
             const screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
             // Only record the path if the file was actually written.
             if (saveReadableTo && !screenshotResult.readablePath) imagePath = null;
@@ -408,6 +411,7 @@ class AskService {
 
             try {
                 const response = await streamingLLM.streamChat(messages);
+                latencyProbe.mark('llm-headers', `${modelInfo.provider}/${modelInfo.model}`);
                 const askWin = getWindowPool()?.get('ask');
 
                 if (!askWin || askWin.isDestroyed()) {
@@ -522,6 +526,8 @@ class AskService {
                             const json = JSON.parse(data);
                             const token = json.choices[0]?.delta?.content || '';
                             if (token) {
+                                // The number that decides whether this is usable mid-conversation.
+                                if (latencyProbe.isRunning()) latencyProbe.end('first-token');
                                 fullResponse += token;
                                 this.state.currentResponse = fullResponse;
                                 this._broadcastState();

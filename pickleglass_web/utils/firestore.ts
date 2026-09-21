@@ -228,6 +228,39 @@ export class FirestoreSummaryService {
   }
 }
 
+export interface FirestoreSnippet {
+  trigger_phrase: string
+  expansion: string
+  created_at?: any
+}
+
+/**
+ * Voice-triggered snippets. Path matches the desktop repository
+ * (src/features/common/repositories/snippet/firebase.repository.js) so both halves read the
+ * same documents.
+ */
+export class FirestoreSnippetService {
+  static async createSnippet(uid: string, snippet: Omit<FirestoreSnippet, 'created_at'>): Promise<string> {
+    const ref = collection(firestore, 'users', uid, 'snippets')
+    const docRef = await addDoc(ref, { ...snippet, uid, created_at: serverTimestamp() })
+    return docRef.id
+  }
+
+  static async getSnippets(uid: string): Promise<Array<{ id: string } & FirestoreSnippet>> {
+    const ref = collection(firestore, 'users', uid, 'snippets')
+    const querySnapshot = await getDocs(query(ref, orderBy('trigger_phrase', 'asc')))
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as FirestoreSnippet) }))
+  }
+
+  static async updateSnippet(uid: string, snippetId: string, updates: Partial<FirestoreSnippet>) {
+    await updateDoc(doc(firestore, 'users', uid, 'snippets', snippetId), updates)
+  }
+
+  static async deleteSnippet(uid: string, snippetId: string) {
+    await deleteDoc(doc(firestore, 'users', uid, 'snippets', snippetId))
+  }
+}
+
 export class FirestorePromptPresetService {
   static async createPreset(uid: string, preset: Omit<FirestorePromptPreset, 'createdAt'>): Promise<string> {
     const presetsRef = collection(firestore, 'users', uid, 'promptPresets');

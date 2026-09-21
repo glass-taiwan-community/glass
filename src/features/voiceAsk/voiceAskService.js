@@ -22,6 +22,8 @@ const HARD_CAP_MS = 20000;    // backstop: a stuck-down key can never record for
 let availability = { available: false, error: 'not checked yet', version: null };
 
 const keyboardHook = require('../common/services/keyboardHookService');
+const probe = require('../common/services/latencyProbe');
+const snippets = require('./snippets');
 let hookRunning = false;      // whether the global hook is currently started
 let isRecording = false;      // whether a hold is currently in progress
 let holdStart = 0;
@@ -86,6 +88,8 @@ function endHold() {
         return;
     }
     console.log(`[VoiceAsk] ${HOLD_KEY_LABEL} up -> recording STOP (held ${heldMs}ms)`);
+    // T0 for the latency timeline: the instant the user stopped speaking and started waiting.
+    probe.start(`voice-ask (spoke ${heldMs}ms)`);
     // STEP 3 will capture the mic clip for this window, transcribe it, and send the
     // transcript + screenshot to Ask. For now the hold is only detected and logged.
 }
@@ -176,6 +180,10 @@ async function handleAudioClip(payload) {
         if (chunks.length === 0) return { success: false, error: 'empty clip' };
 
         const rawBuffer = Buffer.concat(chunks.map(b64 => Buffer.from(b64, 'base64')));
+        // A clip can also arrive without a preceding key hold (an injected measurement run),
+        // in which case no run is open yet -- open one here so the timeline is still produced.
+        if (!probe.isRunning()) probe.start('voice-ask (injected clip)');
+        probe.mark('clip-received', `${rawBuffer.length}B @ ${Math.round(sampleRate)}Hz`);
         console.log(`[VoiceAsk] transcribing ${rawBuffer.length} bytes @ ${Math.round(sampleRate)}Hz...`);
 
         const modelStateService = require('../common/services/modelStateService');
@@ -203,9 +211,21 @@ async function handleAudioClip(payload) {
             return { success: false, error: `provider ${modelInfo.provider} not supported for voice input yet` };
         }
 
+        probe.mark('stt-done', `"${transcript}"`);
+
         if (!transcript) {
             console.log('[VoiceAsk] transcript empty -- nothing said, not sending to Ask');
             return { success: true, transcript: '' };
+        }
+
+        // A spoken trigger phrase stands in for a longer saved prompt. No match -> the transcript
+        // is the question, exactly as before, so an unrecognized phrase degrades to normal Ask.
+        let prompt = transcript;
+        const snippet = await snippets.match(transcript);
+        if (snippet) {
+            prompt = snippet.expansion;
+            console.log(`[VoiceAsk] snippet "${snippet.trigger_phrase}" matched -- substituting expansion (${prompt.length} chars)`);
+            probe.mark('snippet-matched', `"${snippet.trigger_phrase}"`);
         }
 
         console.log(`[VoiceAsk] transcript: "${transcript}" -- sending to Ask`);
@@ -220,8 +240,8 @@ async function handleAudioClip(payload) {
             console.error('[VoiceAsk] could not load Listen context:', e.message);
         }
         console.log(`[VoiceAsk] attaching ${conversationHistory.length} conversation turn(s) as context`);
-        await askService.sendMessage(transcript, conversationHistory);
-        return { success: true, transcript };
+        await askService.sendMessage(prompt, conversationHistory);
+        return { success: true, transcript, snippet: snippet ? snippet.trigger_phrase : null };
     } catch (err) {
         console.error('[VoiceAsk] handleAudioClip error:', err.message);
         return { success: false, error: err.message };
