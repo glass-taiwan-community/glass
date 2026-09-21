@@ -334,6 +334,7 @@ function setupWebDataHandlers() {
     const askRepository = require('./features/ask/repositories');
     const userRepository = require('./features/common/repositories/user');
     const presetRepository = require('./features/common/repositories/preset');
+    const snippetRepository = require('./features/common/repositories/snippet');
     const preContextRepository = require('./features/common/repositories/precontext');
 
     const handleRequest = async (channel, responseChannel, payload) => {
@@ -433,6 +434,21 @@ function setupWebDataHandlers() {
                     settingsService.notifyPresetUpdate('deleted', payload);
                     break;
                 
+                // SNIPPETS (voice-triggered prompt substitution)
+                case 'get-snippets':
+                    // Adapter injects UID
+                    result = await snippetRepository.getSnippets();
+                    break;
+                case 'create-snippet':
+                    result = await snippetRepository.create(payload);
+                    break;
+                case 'update-snippet':
+                    result = await snippetRepository.update(payload.id, payload.data);
+                    break;
+                case 'delete-snippet':
+                    result = await snippetRepository.delete(payload);
+                    break;
+
                 // BATCH
                 case 'get-batch-data':
                     const includes = payload ? payload.split(',').map(item => item.trim()) : ['profile', 'presets', 'sessions'];

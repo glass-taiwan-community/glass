@@ -94,6 +94,18 @@ const LATEST_SCHEMA = {
             { name: 'sync_state', type: 'TEXT DEFAULT \'clean\'' }
         ]
     },
+    // Voice-triggered snippets: a spoken trigger phrase is replaced by `expansion` before the
+    // message reaches Ask. `trigger_phrase`, not `trigger` -- the latter is a SQL reserved word.
+    snippets: {
+        columns: [
+            { name: 'id', type: 'TEXT PRIMARY KEY' },
+            { name: 'uid', type: 'TEXT NOT NULL' },
+            { name: 'trigger_phrase', type: 'TEXT NOT NULL' },
+            { name: 'expansion', type: 'TEXT NOT NULL' },
+            { name: 'created_at', type: 'INTEGER' },
+            { name: 'sync_state', type: 'TEXT DEFAULT \'clean\'' }
+        ]
+    },
     ollama_models: {
         columns: [
             { name: 'name', type: 'TEXT PRIMARY KEY' },

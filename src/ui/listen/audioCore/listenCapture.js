@@ -65,6 +65,68 @@ function isVoiceActive(audioFloat32Array, threshold = 0.005) {
     return rms > threshold;
 }
 
+// How many consecutive digitally-silent 100ms chunks before the mic is called broken. 10s of
+// EXACT zeros cannot happen on a live input -- even a silent room has a noise floor -- so this
+// separates "the track is dead" from "nobody is speaking" with essentially no false positives.
+// Deliberately NOT isVoiceActive()'s RMS threshold: that fires constantly while the user listens
+// rather than talks, which is normal and not a fault.
+const SILENT_CHUNKS_BEFORE_WARNING = 100;
+const SILENCE_REWARN_INTERVAL_MS = 60000;
+
+/**
+ * Build a per-chunk health check for a MICROPHONE stream. Not for system audio, which is silent
+ * whenever the other party is not speaking.
+ *
+ * A mic MediaStreamTrack can end on its own -- sleep/wake, or the audio device changing mid-call
+ * (AirPods, headphones, a dock) -- while the AudioContext stays running and the processor keeps
+ * emitting zeros. On macOS the other party still arrives via SystemAudioDump, so the session looks
+ * completely healthy while only the user's own speech stops being transcribed. This is detection
+ * only: it reports the condition and does not attempt recovery.
+ *
+ * @param {MediaStream} micStream The stream whose track state is reported alongside the warning.
+ * @param {string} label Platform name, so the log says where it came from.
+ * @returns {(chunk: Float32Array|number[]) => void} call once per outgoing chunk
+ */
+function makeMicHealthWatch(micStream, label) {
+    let silentChunks = 0;
+    let lastWarnedAt = 0;
+    let warned = false;
+
+    return (chunk) => {
+        let silent = true;
+        for (let i = 0; i < chunk.length; i++) {
+            if (chunk[i] !== 0) { silent = false; break; }
+        }
+
+        if (!silent) {
+            if (warned) {
+                console.log(`[ListenCapture] ${label} mic is producing audio again after silence`);
+                warned = false;
+            }
+            silentChunks = 0;
+            return;
+        }
+
+        silentChunks++;
+        if (silentChunks < SILENT_CHUNKS_BEFORE_WARNING) return;
+
+        const now = Date.now();
+        if (now - lastWarnedAt < SILENCE_REWARN_INTERVAL_MS) return;
+        lastWarnedAt = now;
+        warned = true;
+
+        let trackState = 'unknown';
+        try {
+            trackState = micStream.getAudioTracks().map(t => `${t.readyState}${t.muted ? '/muted' : ''}`).join(',');
+        } catch { /* stream already gone */ }
+
+        const seconds = Math.round(silentChunks * AUDIO_CHUNK_DURATION);
+        console.error(`[ListenCapture] ${label} mic has sent ${seconds}s of digital silence -- `
+            + `your own speech is NOT being transcribed. Track state: ${trackState}. `
+            + `(A track that is not 'live' has died; restart the Listen session to recover.)`);
+    };
+}
+
 function base64ToFloat32Array(base64) {
     const binaryString = atob(base64);
     const bytes = new Uint8Array(binaryString.length);
@@ -302,6 +364,7 @@ async function setupMicProcessing(micStream) {
 
     let audioBuffer = [];
     const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION;
+    const checkMicHealth = makeMicHealthWatch(micStream, 'macOS');
 
     micProcessor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
@@ -324,6 +387,8 @@ async function setupMicProcessing(micStream) {
             } else {
                 console.log('🔊 No system audio for AEC reference');
             }
+
+            checkMicHealth(chunk);
 
             const pcm16 = convertFloat32ToInt16(processedChunk);
             const b64 = arrayBufferToBase64(pcm16.buffer);
@@ -350,6 +415,7 @@ function setupLinuxMicProcessing(micStream) {
 
     let audioBuffer = [];
     const samplesPerChunk = SAMPLE_RATE * AUDIO_CHUNK_DURATION;
+    const checkMicHealth = makeMicHealthWatch(micStream, 'Linux');
 
     micProcessor.onaudioprocess = async e => {
         const inputData = e.inputBuffer.getChannelData(0);
@@ -358,6 +424,7 @@ function setupLinuxMicProcessing(micStream) {
         // Process audio in chunks
         while (audioBuffer.length >= samplesPerChunk) {
             const chunk = audioBuffer.splice(0, samplesPerChunk);
+            checkMicHealth(chunk);
             const pcmData16 = convertFloat32ToInt16(chunk);
             const base64Data = arrayBufferToBase64(pcmData16.buffer);
 
@@ -574,6 +641,10 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
 function stopCapture() {
     // Clean up microphone resources
     if (audioProcessor) {
+        // Detach before disconnecting: a disconnected ScriptProcessor can still run a queued
+        // callback, and an orphan that keeps sending audio is a real failure mode (it cost
+        // voice-ask a 17x duplicate-capture bug). No behavior change, just hardening.
+        audioProcessor.onaudioprocess = null;
         audioProcessor.disconnect();
         audioProcessor = null;
     }
@@ -584,6 +655,7 @@ function stopCapture() {
 
     // Clean up system audio resources
     if (systemAudioProcessor) {
+        systemAudioProcessor.onaudioprocess = null;
         systemAudioProcessor.disconnect();
         systemAudioProcessor = null;
     }

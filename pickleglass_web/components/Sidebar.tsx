@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useState, createElement, useEffect, useMemo, useCallback, memo } from 'react';
-import { Search, Activity, HelpCircle, Download, ChevronDown, User, Shield, Database, CreditCard, LogOut, Sun, Moon, Monitor, LucideIcon } from 'lucide-react';
+import { Search, Activity, HelpCircle, Download, ChevronDown, User, Shield, Database, CreditCard, LogOut, Sun, Moon, Monitor, Mic, LucideIcon } from 'lucide-react';
 import { ThemePreference, THEME_OPTIONS, readThemePreference, writeThemePreference, applyTheme } from '@/utils/theme';
 import { logout, UserProfile, checkApiKeyStatus } from '@/utils/api';
 import { useAuth } from '@/utils/auth';
@@ -251,6 +251,13 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
                 icon: '/book.svg',
                 isLucide: false,
                 ariaLabel: 'Personalization settings',
+            },
+            {
+                name: 'Snippets',
+                href: '/snippets',
+                icon: Mic,
+                isLucide: true,
+                ariaLabel: 'Voice-triggered snippets',
             },
             {
                 name: 'Pre-Context',

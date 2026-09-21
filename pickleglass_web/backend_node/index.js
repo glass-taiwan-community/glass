@@ -31,6 +31,7 @@ function createApp(eventBridge) {
     app.use('/api/user', require('./routes/user'));
     app.use('/api/conversations', require('./routes/conversations'));
     app.use('/api/presets', require('./routes/presets'));
+    app.use('/api/snippets', require('./routes/snippets'));
     app.use('/api/precontext', require('./routes/precontext'));
 
     // Serve saved screen-only Ask screenshots from userData/ask-screenshots. This express app
