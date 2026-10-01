@@ -543,6 +543,46 @@ class ModelStateService extends EventEmitter {
         };
     }
 
+    /**
+     * There is deliberately no same-provider-versus-different-provider branch. The key and base
+     * URL are always read from the overridden provider's own row, which makes it structurally
+     * impossible to send one provider's key to another provider's endpoint. A branch is the one
+     * thing that could get that pairing wrong, so there isn't one.
+     *
+     * The override arrives as a parameter and is never read from settingsService here:
+     * settingsService requires this module at its top level, so reading back would be a cycle.
+     *
+     * Every failure falls back to the globally active model. A slower Ask on the wrong model is
+     * recoverable; a dead Ask mid-interview is not.
+     *
+     * @param {'llm'|'stt'} type
+     * @param {{provider: string, model: string}|null} override
+     * @returns {Promise<{provider: string, model: string, apiKey: string, baseUrl: string|null}|null>}
+     */
+    async resolveModelInfo(type, override) {
+        const active = await this.getCurrentModelInfo(type);
+        if (!override || !override.provider || !override.model) return active;
+
+        try {
+            const row = await providerSettingsRepository.getByProvider(override.provider);
+            if (!row || !row.api_key) {
+                console.warn(`[ModelStateService] ignoring the model override ${override.provider}/${override.model}:`
+                    + ` ${row ? 'that provider has no stored API key' : 'that provider has no stored settings'}`);
+                return active;
+            }
+            return {
+                provider: override.provider,
+                model: override.model,
+                apiKey: row.api_key,
+                baseUrl: row.base_url || null,
+            };
+        } catch (error) {
+            console.warn(`[ModelStateService] could not read provider ${override.provider} for the model override:`
+                + ` ${error.message}`);
+            return active;
+        }
+    }
+
     // --- 핸들러 및 유틸리티 메서드 ---
 
     /**

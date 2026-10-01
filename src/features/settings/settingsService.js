@@ -479,6 +479,74 @@ async function setSaveAskScreenshots(enabled) {
     }
 }
 
+// The two Ask-tuning settings below live in electron-store, not in the uid-keyed sqlite `users`
+// table that getSaveAskScreenshots just above reads. authService.getCurrentUserId() flips between
+// `default_user` and a Firebase uid on sign-in and sign-out, so a row keyed that way stops being
+// found and the setting silently reverts to its default partway through a session. For
+// askAttachScreen that reversion would hand back the ~550 ms screenshot capture this whole change
+// exists to remove, mid-interview and with nothing to show why. electron-store is machine-scoped,
+// so neither setting can move underneath a sign-in.
+const ASK_MODEL_OVERRIDE_KEY = 'askModelOverride';
+const ASK_ATTACH_SCREEN_KEY = 'askAttachScreen';
+
+function isAskModelOverride(value) {
+    return !!value
+        && typeof value === 'object'
+        && typeof value.provider === 'string' && value.provider.trim() !== ''
+        && typeof value.model === 'string' && value.model.trim() !== '';
+}
+
+async function getAskModelOverride() {
+    try {
+        const stored = store.get(ASK_MODEL_OVERRIDE_KEY);
+        // The store file is hand-edited JSON, so a half-written override has to read as "no
+        // override" here rather than propagate a malformed shape into model resolution.
+        if (!isAskModelOverride(stored)) return null;
+        // Trimmed because isAskModelOverride accepts on the trimmed value. Returning the raw one
+        // lets a hand-edited `" anthropic "` pass the guard and then miss getByProvider, which
+        // silently keeps Ask on the slow active model with only a console warn to say why.
+        return { provider: stored.provider.trim(), model: stored.model.trim() };
+    } catch (error) {
+        console.error('[SettingsService] Error getting ask-model override:', error.message);
+        return null;
+    }
+}
+
+async function setAskModelOverride(override) {
+    if (override !== null && !isAskModelOverride(override)) {
+        return { success: false, error: 'askModelOverride must be null, or { provider, model } with both non-empty strings' };
+    }
+    try {
+        store.set(ASK_MODEL_OVERRIDE_KEY, override === null
+            ? null
+            : { provider: override.provider.trim(), model: override.model.trim() });
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting ask-model override:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+async function getAskAttachScreen() {
+    try {
+        const stored = store.get(ASK_ATTACH_SCREEN_KEY);
+        return typeof stored === 'boolean' ? stored : true;
+    } catch (error) {
+        console.error('[SettingsService] Error getting ask-attach-screen:', error.message);
+        return true;
+    }
+}
+
+async function setAskAttachScreen(enabled) {
+    try {
+        store.set(ASK_ATTACH_SCREEN_KEY, !!enabled);
+        return { success: true };
+    } catch (error) {
+        console.error('[SettingsService] Error setting ask-attach-screen:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
 async function getVoiceAskEnabled() {
     try {
         return await settingsRepository.getVoiceAskEnabled();
@@ -539,6 +607,10 @@ module.exports = {
     setVoiceAskEnabled,
     getSaveAskScreenshots,
     setSaveAskScreenshots,
+    getAskModelOverride,
+    setAskModelOverride,
+    getAskAttachScreen,
+    setAskAttachScreen,
     setSttLanguageSetting,
     SUPPORTED_STT_LANGUAGES,
     // Model settings facade
