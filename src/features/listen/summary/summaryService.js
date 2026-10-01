@@ -82,8 +82,12 @@ class SummaryService {
                 return;
             }
 
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', '', false, preContext)
-                .replace('{{CONVERSATION_HISTORY}}', '');
+            const systemPrompt = getSystemPrompt({
+                profile: 'pickle_glass_analysis',
+                googleSearchEnabled: false,
+                preContext,
+                screenAttached: true,
+            }).replace('{{CONVERSATION_HISTORY}}', '');
 
             const messages = [
                 { role: 'system', content: systemPrompt },
@@ -173,7 +177,12 @@ Please build upon this context while analyzing the new conversation segments.
 `;
         }
 
-        const basePrompt = getSystemPrompt('pickle_glass_analysis', '', false, this.preContext);
+        const basePrompt = getSystemPrompt({
+            profile: 'pickle_glass_analysis',
+            googleSearchEnabled: false,
+            preContext: this.preContext,
+            screenAttached: true,
+        });
         const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', recentConversation);
 
         // Captured outside the try so the catch can report which provider actually failed.
@@ -538,7 +547,12 @@ Keep all points concise and build upon previous analysis if provided.
 
             console.log(`[SummaryService] Generating final summary for ${sessionId}: ${transcripts.length} turns, ${units} units, model ${modelInfo.model}`);
 
-            const basePrompt = getSystemPrompt('session_retrospective', '', false, this.preContext);
+            const basePrompt = getSystemPrompt({
+                profile: 'session_retrospective',
+                googleSearchEnabled: false,
+                preContext: this.preContext,
+                screenAttached: true,
+            });
             const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', conversation);
 
             const llm = createLLM(modelInfo.provider, {

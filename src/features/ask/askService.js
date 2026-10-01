@@ -392,7 +392,13 @@ class AskService {
             const availableTurns = conversationHistoryRaw?.length ?? 0;
             console.log(`[AskService] Context: ${Math.min(availableTurns, 30)} of ${availableTurns} conversation turn(s) sent, screenshot=${screenshotBase64 ? 'yes' : 'no'}`);
 
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false, repoContextService.promptBlock());
+            const systemPrompt = getSystemPrompt({
+                profile: 'pickle_glass_analysis',
+                customPrompt: conversationHistory,
+                googleSearchEnabled: false,
+                preContext: repoContextService.promptBlock(),
+                screenAttached: !!screenshotBase64,
+            });
 
             const messages = [
                 { role: 'system', content: systemPrompt },
