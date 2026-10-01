@@ -25,6 +25,7 @@ const { EventEmitter } = require('events');
 const askService = require('./features/ask/askService');
 const settingsService = require('./features/settings/settingsService');
 const voiceAskService = require('./features/voiceAsk/voiceAskService');
+const repoContextService = require('./features/common/repoContext/repoContextService');
 const sessionRepository = require('./features/common/repositories/session');
 const modelStateService = require('./features/common/services/modelStateService');
 const featureBridge = require('./bridge/featureBridge');
@@ -201,6 +202,13 @@ app.whenReady().then(async () => {
 
         // Probe the native voice-input hook early and log availability. Guarded internally,
         // so a load failure reports unavailable rather than blocking startup.
+        // Build the repo pack once at startup, fire and forget. Ask reads it synchronously via
+        // promptBlock(), so without this the pack never exists and every Ask gets the sentinel.
+        // Once per launch is the right cadence: the packed repo does not change during a session,
+        // and window-visibility hooks are not usable here -- windowManager.js:305 early-returns when
+        // the window is already visible, and askService.js:310 emits that event before it assembles
+        // the prompt, so a refresh keyed on it would always race the question that triggered it.
+        repoContextService.refresh().catch(e => console.error('[RepoContext] startup pack failed:', e.message));
         voiceAskService.initialize();
         // Enforce the 30-day retention window on saved Ask screenshots.
         askService.cleanupOldScreenshots().catch(() => {});
