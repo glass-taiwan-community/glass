@@ -86,7 +86,7 @@ class SummaryService {
                 profile: 'pickle_glass_analysis',
                 googleSearchEnabled: false,
                 preContext,
-                screenAttached: true,
+                screenAttached: false,
             }).replace('{{CONVERSATION_HISTORY}}', '');
 
             const messages = [
@@ -181,7 +181,7 @@ Please build upon this context while analyzing the new conversation segments.
             profile: 'pickle_glass_analysis',
             googleSearchEnabled: false,
             preContext: this.preContext,
-            screenAttached: true,
+            screenAttached: false,
         });
         const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', recentConversation);
 
@@ -551,7 +551,7 @@ Keep all points concise and build upon previous analysis if provided.
                 profile: 'session_retrospective',
                 googleSearchEnabled: false,
                 preContext: this.preContext,
-                screenAttached: true,
+                screenAttached: false,
             });
             const systemPrompt = basePrompt.replace('{{CONVERSATION_HISTORY}}', conversation);
 
