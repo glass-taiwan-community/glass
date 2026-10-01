@@ -23,6 +23,7 @@ const execFile = util.promisify(require('child_process').execFile);
 const { desktopCapturer } = require('electron');
 const modelStateService = require('../common/services/modelStateService');
 const latencyProbe = require('../common/services/latencyProbe');
+const repoContextService = require('../common/repoContext/repoContextService');
 
 // Try to load sharp, but don't fail if it's not available
 let sharp;
@@ -374,7 +375,7 @@ class AskService {
             const availableTurns = conversationHistoryRaw?.length ?? 0;
             console.log(`[AskService] Context: ${Math.min(availableTurns, 30)} of ${availableTurns} conversation turn(s) sent, screenshot=${screenshotBase64 ? 'yes' : 'no'}`);
 
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false);
+            const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false, repoContextService.promptBlock());
 
             const messages = [
                 { role: 'system', content: systemPrompt },
