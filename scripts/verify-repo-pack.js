@@ -415,58 +415,28 @@ async function checkServiceRootHandling() {
             && !restricted.split('\n').some(line => line.endsWith(' a.yaml')),
             'the repoContextSubpaths setting reaches buildRepoPack and restricts the served pack');
 
-        // A bare string is the plausible hand-edit. buildRepoPack would throw on it and build()
-        // would catch, leaving the sentinel, so the coercion is what keeps a typo from reading as
-        // "no repository configured" at the moment the user needs an answer.
-        configuredSubpaths = 'sub';
-        check(await service.refresh() === true,
-            'a malformed repoContextSubpaths still produces a pack rather than the sentinel');
-        const coerced = service.promptBlock();
-        check(!coerced.includes('=== restricted to:') && coerced.includes('a.yaml'),
-            'a malformed repoContextSubpaths reads as not configured, so the whole repository packs');
-    } finally {
-        if (realStore) require.cache[storeId] = realStore;
-        else delete require.cache[storeId];
-        delete require.cache[serviceId];
-    }
-}
+        configuredSubpaths = ['  sub  '];
+        check(await service.refresh() === true && service.promptBlock().includes('=== restricted to: sub ==='),
+            'a subpath padded with whitespace is trimmed on the live path, not left to match nothing');
 
-/**
- * settingsService.js requires electron, authService, windowManager and modelStateService at load.
- * All of them survive a headless require under node 18 (electron's npm package exports a path
- * string, not the runtime), so the getter is reachable here; only electron-store has to be faked,
- * because the real one would read the developer's own live settings file and this assertion is
- * about what a malformed value does.
- */
-async function checkSettingsGetter() {
-    const storeId = require.resolve('electron-store');
-    const realStore = require.cache[storeId];
-    let stored;
-
-    require.cache[storeId] = {
-        id: storeId,
-        filename: storeId,
-        loaded: true,
-        exports: class { get(key) { return key === 'repoContextSubpaths' ? stored : undefined; } },
-    };
-
-    try {
-        const settingsService = require(SETTINGS_MODULE);
-
-        stored = ['src/features/listen', '  src/ui  '];
-        const well = await settingsService.getRepoContextSubpaths();
-        check(well.length === 2 && well[0] === 'src/features/listen' && well[1] === 'src/ui',
-            'getRepoContextSubpaths returns the stored array, trimmed');
-
-        for (const bad of [undefined, null, 'src', 42, { '0': 'src' }, ['src', 7], ['src', '']]) {
-            stored = bad;
-            const read = await settingsService.getRepoContextSubpaths();
-            check(Array.isArray(read) && read.length === 0,
-                `getRepoContextSubpaths reads ${JSON.stringify(bad) || String(bad)} as not configured`);
+        // Each of these is a plausible hand-edit of the settings JSON. buildRepoPack would throw on
+        // them and build() would catch, leaving the sentinel, so the coercion is what keeps a typo
+        // from reading as "no repository configured" at the moment the user needs an answer.
+        // These cases used to test a settingsService getter that had no production caller; they run
+        // against the live path now, which is the one a typo actually reaches.
+        for (const bad of ['sub', 42, { '0': 'sub' }, ['sub', 7], ['sub', ''], [''], null]) {
+            configuredSubpaths = bad;
+            const label = JSON.stringify(bad) || String(bad);
+            check(await service.refresh() === true,
+                `a malformed repoContextSubpaths ${label} still produces a pack rather than the sentinel`);
+            const coerced = service.promptBlock();
+            check(!coerced.includes('=== restricted to:') && coerced.includes('a.yaml'),
+                `a malformed repoContextSubpaths ${label} reads as not configured, so the whole repository packs`);
         }
     } finally {
         if (realStore) require.cache[storeId] = realStore;
         else delete require.cache[storeId];
+        delete require.cache[serviceId];
     }
 }
 
@@ -478,7 +448,6 @@ async function main() {
     await checkSizer();
     checkServiceSentinel();
     await checkServiceRootHandling();
-    await checkSettingsGetter();
 }
 
 function cleanup() {

@@ -548,25 +548,6 @@ async function setAskAttachScreen(enabled) {
     }
 }
 
-/**
- * The subpaths the repo pack is restricted to, empty meaning the whole repository.
- *
- * Returns [] for anything that is not an array of non-empty strings. The store file is hand-edited
- * JSON and this value decides which files Ask can see, so a half-written value has to read as "not
- * configured" rather than restrict the pack to a shape repoPack would then refuse outright.
- */
-async function getRepoContextSubpaths() {
-    try {
-        const stored = store.get(REPO_CONTEXT_SUBPATHS_KEY);
-        if (!Array.isArray(stored)) return [];
-        if (!stored.every(entry => typeof entry === 'string' && entry.trim() !== '')) return [];
-        return stored.map(entry => entry.trim());
-    } catch (error) {
-        console.error('[SettingsService] Error getting repo-context subpaths:', error.message);
-        return [];
-    }
-}
-
 async function getVoiceAskEnabled() {
     try {
         return await settingsRepository.getVoiceAskEnabled();
@@ -631,7 +612,6 @@ module.exports = {
     setAskModelOverride,
     getAskAttachScreen,
     setAskAttachScreen,
-    getRepoContextSubpaths,
     setSttLanguageSetting,
     SUPPORTED_STT_LANGUAGES,
     // Model settings facade

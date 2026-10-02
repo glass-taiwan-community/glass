@@ -104,9 +104,11 @@ function refresh() {
 async function build(root) {
     if (!root) return false;
     try {
-        // Read from the store directly rather than through settingsService.getRepoContextSubpaths,
-        // which exists for a later UI: settingsService pulls in electron, windowManager and
-        // modelStateService, and this module is deliberately loadable with none of them.
+        // configuredList, not settingsService: importing it here would close the cycle
+        // settingsService -> windowManager -> shortcutsService -> askService -> this module, and
+        // settingsService also pulls in electron and modelStateService, which this module is
+        // deliberately loadable without. So validation of the hand-edited JSON lives here, at the
+        // boundary the value actually crosses.
         const pack = await buildRepoPack(root, {
             includePaths: configuredList(INCLUDE_KEY),
             subpaths: configuredList(SUBPATHS_KEY),
