@@ -308,6 +308,35 @@ async function checkGlassSubpath() {
         + ` ${whole.omitted.filter(entry => entry.reason === 'over-budget').length} over-budget`);
 }
 
+/**
+ * The sizer's only machine-readable contract is its exit code, and the asymmetry in it is the part
+ * worth protecting: an over-budget selection is a usable answer and exits 0, while a subpath
+ * matching nothing is a configuration error and exits 1 even when another subpath matched, which
+ * buildRepoPack itself deliberately does not do.
+ */
+async function checkSizer() {
+    const sizer = path.join(__dirname, 'size-repo-pack.js');
+    const big = { maxBuffer: 8 * 1024 * 1024 };
+
+    const fits = await execFile('node', [sizer, fixture], big);
+    check(/\npacked   \d+ files/.test(fits.stdout) && fits.stdout.includes('no file was dropped'),
+        'the sizer reports what would be packed, and exits 0 when everything fits');
+
+    const over = await execFile('node', [sizer, TARGET_REPO], big);
+    check(/\nstopped  docs\//.test(over.stdout) && /\nunused   [\d,]+ B/.test(over.stdout)
+        && over.stdout.includes('directories that fit'),
+        'an over-budget selection exits 0, names the file that tripped the hard stop, and suggests subpaths');
+
+    let refused = null;
+    try {
+        await execFile('node', [sizer, fixture, 'sub', 'no-such-dir'], big);
+    } catch (err) {
+        refused = err;
+    }
+    check(refused !== null && refused.code === 1 && /match no tracked file/.test(refused.stderr),
+        'one unmatched subpath among two exits 1, stricter than the library, because this runs at configuration time');
+}
+
 function checkServiceSentinel() {
     const service = require(SERVICE_MODULE);
     const block = service.promptBlock();
@@ -441,6 +470,7 @@ async function main() {
     fixture = await buildFixture();
     await checkFixture();
     await checkGlassSubpath();
+    await checkSizer();
     checkServiceSentinel();
     await checkServiceRootHandling();
     await checkSettingsGetter();
