@@ -317,7 +317,15 @@ async function main() {
     reportBudget(pack);
     reportOmissions(pack);
     if (pack.omitted.some(entry => entry.reason === 'over-budget')) {
-        await reportSuggestions(root, subpaths);
+        // reportSuggestions reads only `files` and `sourceBytes`, but buildRepoPack always renders
+        // the full text. Measured on glass: an unlimited build renders 2,682,145 B that nothing
+        // reads, and past V8's string limit `join` throws RangeError. Degrade rather than exit 1 on
+        // a result the user can act on.
+        try {
+            await reportSuggestions(root, subpaths);
+        } catch (err) {
+            console.log(`\nsuggest  unavailable: ${err.message}`);
+        }
     }
     await reportExactTokens(pack);
 }

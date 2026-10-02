@@ -148,9 +148,14 @@ async function checkTargetRepo() {
     check(withoutTimestamps(dotSlice.text) === withoutTimestamps(slice.text),
         "a subpath spelled './slice' selects what 'slice' selects");
 
-    check(slice.text.includes('=== restricted to: slice ===')
-        && slice.text.includes('The rest of this repository is not in context'),
-        'the restricted pack names the restriction inside the prompt, where the model reads it');
+    // `includes` is position-blind. A mutant that moved these two lines below the file bodies put
+    // the notice at byte 34,868 of 34,974 and passed every other assertion in this suite, which is
+    // the position a model weights least. Pin the position, not the presence.
+    const noticeAt = slice.text.indexOf('=== restricted to: slice ===');
+    check(noticeAt !== -1
+        && slice.text.includes('The rest of this repository is not in context')
+        && noticeAt < slice.text.indexOf('=== manifest ==='),
+        'the restricted pack names the restriction ahead of the manifest, where the model reads it');
     check(!pack.text.includes('restricted to:') && !atRoot.text.includes('restricted to:'),
         'an unrestricted pack claims no restriction, and nor does one whose subpath is the root');
 

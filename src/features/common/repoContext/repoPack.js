@@ -263,8 +263,16 @@ function render(pack, policy) {
     // A subpath spelling the repo root selects everything, so there is no excluded remainder and
     // the second line would be false. That case renders exactly like no subpaths at all.
     if (pack.subpaths.length && !pack.subpaths.includes('')) {
-        lines.push(`=== restricted to: ${pack.subpaths.join(', ')} ===`,
-            'The rest of this repository is not in context; do not claim knowledge of it.');
+        // An opt-in path outside the selection is still packed, so an unqualified "the rest is not
+        // in context" would be contradicted by the manifest two lines below it. Name the exceptions
+        // instead of dropping the claim: the claim is what gives the model grounds to deny a file,
+        // and under restriction the unselected files never enter `omitted` to be denied from there.
+        const outside = pack.files.map(f => f.path).filter(p => !matchesSubpath(p, pack.subpaths));
+        lines.push(`=== restricted to: ${pack.subpaths.join(', ')} ===`);
+        lines.push(outside.length
+            ? `The rest of this repository is not in context, except ${outside.join(', ')}.`
+                + ' Do not claim knowledge of anything else.'
+            : 'The rest of this repository is not in context; do not claim knowledge of it.');
     }
 
     lines.push(
