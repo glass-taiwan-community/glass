@@ -19,6 +19,7 @@ const execFile = util.promisify(require('child_process').execFile);
 
 const PACK_MODULE = '../src/features/common/repoContext/repoPack';
 const SERVICE_MODULE = '../src/features/common/repoContext/repoContextService';
+const SETTINGS_MODULE = '../src/features/settings/settingsService';
 const { buildRepoPack, DEFAULT_POLICY } = require(PACK_MODULE);
 
 const TARGET_REPO = '/Users/yen/repo/deepgram-takehome';
@@ -59,6 +60,16 @@ function reasonOf(pack, relPath) {
 
 function isIncluded(pack, relPath) {
     return pack.files.some(file => file.path === relPath);
+}
+
+/**
+ * Deliberately NOT repoPack's exported matchesSubpath. An expected set computed with the same
+ * matcher the pack enumerated with moves whenever the matcher is wrong, so the comparison would
+ * confirm itself; a raw-prefix regression was caught here only by a hard-coded count. This
+ * predicate is the independent oracle, and every expected set below is built from it.
+ */
+function under(relPath, dir) {
+    return relPath.startsWith(`${dir}/`);
 }
 
 function withoutTimestamps(text) {
@@ -116,6 +127,33 @@ async function checkTargetRepo() {
     check(withoutTimestamps(pack.text) === withoutTimestamps(again.text),
         'two consecutive builds produce identical text apart from builtAt');
 
+    const unset = await buildRepoPack(TARGET_REPO, { subpaths: [] });
+    check(withoutTimestamps(unset.text) === withoutTimestamps(pack.text)
+        && unset.files.length === pack.files.length,
+        'an empty subpaths list reproduces the unrestricted pack, rendered text and file set');
+    const atRoot = await buildRepoPack(TARGET_REPO, { subpaths: ['.'] });
+    check(withoutTimestamps(atRoot.text) === withoutTimestamps(pack.text),
+        "a subpath spelled '.' normalizes to the root and selects the whole repository");
+
+    const slice = await buildRepoPack(TARGET_REPO, { subpaths: ['slice'] });
+    const expectedSlice = expected.filter(relPath => under(relPath, 'slice'));
+    const sliceAccounted = [...slice.files.map(f => f.path), ...slice.omitted.map(o => o.path)];
+    check(expectedSlice.length > 1 && sliceAccounted.length === expectedSlice.length
+        && expectedSlice.every(relPath => sliceAccounted.includes(relPath)),
+        `subpaths ['slice'] partitions exactly git's ${expectedSlice.length} paths under slice/`);
+    check(!sliceAccounted.includes('README.md'),
+        'README.md is outside the selection and absent from the pack entirely, not even omitted');
+
+    const dotSlice = await buildRepoPack(TARGET_REPO, { subpaths: ['./slice'] });
+    check(withoutTimestamps(dotSlice.text) === withoutTimestamps(slice.text),
+        "a subpath spelled './slice' selects what 'slice' selects");
+
+    check(slice.text.includes('=== restricted to: slice ===')
+        && slice.text.includes('The rest of this repository is not in context'),
+        'the restricted pack names the restriction inside the prompt, where the model reads it');
+    check(!pack.text.includes('restricted to:') && !atRoot.text.includes('restricted to:'),
+        'an unrestricted pack claims no restriction, and nor does one whose subpath is the root');
+
     console.log(`\ninfo at the finding's measured ${MEASURED_BYTES_PER_TOKEN} B/token for`
         + ` code-and-config content, the ${pack.sourceBytes} source B are`
         + ` ${Math.round(pack.sourceBytes / MEASURED_BYTES_PER_TOKEN)} tokens and the`
@@ -137,6 +175,15 @@ async function buildFixture() {
     fs.writeFileSync(path.join(root, 'large.txt'), 'x'.repeat(200));
     fs.symlinkSync('./nothing-here', path.join(root, 'unreadable.txt'));
     fs.writeFileSync(path.join(root, 'hidden.yaml'), '# hidden\nvalue: 1\n');
+
+    // `sublime/` exists only so a `sub` subpath has a prefix-sharing sibling it must not select.
+    // All three sort after c.yaml, so the tight budget below still crosses at b.yaml and every
+    // assertion written before subpaths existed holds unchanged.
+    fs.mkdirSync(path.join(root, 'sub'));
+    fs.mkdirSync(path.join(root, 'sublime'));
+    fs.writeFileSync(path.join(root, 'sub', 'd.yaml'), `# d\n${'d'.repeat(20)}`);
+    fs.writeFileSync(path.join(root, 'sub', 'notes.txt'), 'nested prose\n');
+    fs.writeFileSync(path.join(root, 'sublime', 'e.yaml'), `# e\n${'e'.repeat(20)}`);
 
     await execFile('git', ['-C', root, 'add', '-A']);
     fs.mkdirSync(path.join(root, 'no-git-here'));
@@ -198,10 +245,67 @@ async function checkFixture() {
     await checkThrows(() => buildRepoPack(path.join(fixture, 'no-git-here')),
         /no \.git entry/, 'an existing directory with no .git entry is refused');
 
+    const subOnly = await buildRepoPack(fixture, { subpaths: ['sub'] });
+    const expectedSub = expected.filter(relPath => under(relPath, 'sub'));
+    const subAccounted = [...subOnly.files.map(f => f.path), ...subOnly.omitted.map(o => o.path)];
+    check(expectedSub.length === 2 && subAccounted.length === 2
+        && expectedSub.every(relPath => subAccounted.includes(relPath)),
+        `fixture subpaths ['sub'] partitions exactly ${expectedSub.join(' and ')}`);
+    check(!subAccounted.some(relPath => relPath.startsWith('sublime/')),
+        "'sub' leaves sublime/e.yaml out, so the match is segment-aware and not a raw prefix");
+
+    const subFile = await buildRepoPack(fixture, { subpaths: ['sub/d.yaml'] });
+    check(subFile.files.length + subFile.omitted.length === 1 && isIncluded(subFile, 'sub/d.yaml'),
+        'a subpath naming one file selects that file and nothing else');
+
+    const subPlusOptIn = await buildRepoPack(fixture, { subpaths: ['sub'], includePaths: ['./hidden.yaml'] });
+    check(isIncluded(subPlusOptIn, 'hidden.yaml') && isIncluded(subPlusOptIn, 'sub/d.yaml')
+        && !subPlusOptIn.files.some(file => file.path === 'a.yaml'),
+        'an opt-in path outside the subpaths is still added, and the restriction still holds otherwise');
+
+    const partial = await buildRepoPack(fixture, { subpaths: ['sub', 'no-such-dir'] });
+    check(isIncluded(partial, 'sub/d.yaml'),
+        'one mistyped subpath among two still yields a pack: silence mid-interview is the worse failure');
+
+    await checkThrows(() => buildRepoPack(fixture, { subpaths: ['../escape'] }),
+        /subpath \.\.\/escape resolves outside/, 'a subpath resolving outside the root is refused');
+    await checkThrows(() => buildRepoPack(fixture, { subpaths: ['no-such-dir'] }),
+        /no tracked file is under any of the subpaths no-such-dir/,
+        'a selection resolving to zero files is refused, and the message names the subpath');
+
     const dotGit = fs.statSync(path.join(WORKTREE_ROOT, '.git'));
     const own = await buildRepoPack(WORKTREE_ROOT);
     check(own.files.length > 0,
         `this repo's own root is accepted with .git as a ${dotGit.isFile() ? 'file, so worktrees work' : 'directory'}`);
+}
+
+/**
+ * The real-world restriction case, and the reason subpaths exist. Unrestricted, this repo packs 11
+ * files and none of src/, because functions/package-lock.json at 286,977 B sorts into the
+ * code-and-config band and trips the hard budget stop (finding-ttft-vs-prompt-size.md, "Known
+ * limits of unit 1"). WORKTREE_ROOT is a worktree, so this reads whatever its index holds rather
+ * than assuming the main checkout's file set; the first assertion states what it found.
+ */
+async function checkGlassSubpath() {
+    const tracked = await gitPaths(WORKTREE_ROOT);
+    const listenPaths = tracked.filter(relPath => under(relPath, 'src/features/listen'));
+    check(listenPaths.length > 0 && tracked.includes('functions/package-lock.json'),
+        `this worktree's index holds ${listenPaths.length} paths under src/features/listen/ out of`
+        + ` ${tracked.length}, and the lockfile the restriction exists to get away from`);
+
+    const pack = await buildRepoPack(WORKTREE_ROOT, { subpaths: ['src/features/listen'] });
+    const outside = pack.files.filter(file => !file.path.startsWith('src/features/listen/'));
+    check(pack.files.length > 0 && outside.length === 0,
+        `restricting glass to src/features/listen packs ${pack.files.length} files,`
+        + ` ${pack.sourceBytes} B, ~${pack.estTokens} tokens, and nothing outside it`
+        + `${outside.length ? ` (${outside.map(file => file.path).join(', ')})` : ''}`);
+    check(!pack.files.concat(pack.omitted).some(entry => entry.path === 'functions/package-lock.json'),
+        'functions/package-lock.json is not in the restricted pack at all, not even as an omission');
+
+    const whole = await buildRepoPack(WORKTREE_ROOT);
+    check(!whole.files.some(file => file.path.startsWith('src/')),
+        `unrestricted, the same repo packs ${whole.files.length} files and none of src/, with`
+        + ` ${whole.omitted.filter(entry => entry.reason === 'over-budget').length} over-budget`);
 }
 
 function checkServiceSentinel() {
@@ -220,12 +324,19 @@ async function checkServiceRootHandling() {
     const serviceId = require.resolve(SERVICE_MODULE);
     const realStore = require.cache[storeId];
     let configured = null;
+    let configuredSubpaths = [];
 
     require.cache[storeId] = {
         id: storeId,
         filename: storeId,
         loaded: true,
-        exports: class { get(key) { return key === 'repoContextRootPath' ? configured : undefined; } },
+        exports: class {
+            get(key) {
+                if (key === 'repoContextRootPath') return configured;
+                if (key === 'repoContextSubpaths') return configuredSubpaths;
+                return undefined;
+            }
+        },
     };
     delete require.cache[serviceId];
 
@@ -252,12 +363,33 @@ async function checkServiceRootHandling() {
         configured = WORKTREE_ROOT;
         const forWorktree = service.refresh();
         configured = fixture;
-        check(service.refresh() !== forWorktree,
+        // Awaited below rather than discarded: the subpaths case after it must not join an
+        // in-flight build started while the setting still read as unrestricted.
+        const afterChange = service.refresh();
+        check(afterChange !== forWorktree,
             'a refresh() after a root change does not join the build for the root the user left');
         check(await forWorktree === false,
             'a build whose root changed underneath it is discarded rather than installed');
         check(service.promptBlock().includes(`=== repo: ${path.basename(fixture)} @`),
             'the working pack for the configured root survives that discard');
+        await afterChange;
+
+        configuredSubpaths = ['sub'];
+        check(await service.refresh() === true, 'refresh() installs a pack with subpaths configured');
+        const restricted = service.promptBlock();
+        check(restricted.includes('=== restricted to: sub ===') && restricted.includes('sub/d.yaml')
+            && !restricted.split('\n').some(line => line.endsWith(' a.yaml')),
+            'the repoContextSubpaths setting reaches buildRepoPack and restricts the served pack');
+
+        // A bare string is the plausible hand-edit. buildRepoPack would throw on it and build()
+        // would catch, leaving the sentinel, so the coercion is what keeps a typo from reading as
+        // "no repository configured" at the moment the user needs an answer.
+        configuredSubpaths = 'sub';
+        check(await service.refresh() === true,
+            'a malformed repoContextSubpaths still produces a pack rather than the sentinel');
+        const coerced = service.promptBlock();
+        check(!coerced.includes('=== restricted to:') && coerced.includes('a.yaml'),
+            'a malformed repoContextSubpaths reads as not configured, so the whole repository packs');
     } finally {
         if (realStore) require.cache[storeId] = realStore;
         else delete require.cache[storeId];
@@ -265,12 +397,53 @@ async function checkServiceRootHandling() {
     }
 }
 
+/**
+ * settingsService.js requires electron, authService, windowManager and modelStateService at load.
+ * All of them survive a headless require under node 18 (electron's npm package exports a path
+ * string, not the runtime), so the getter is reachable here; only electron-store has to be faked,
+ * because the real one would read the developer's own live settings file and this assertion is
+ * about what a malformed value does.
+ */
+async function checkSettingsGetter() {
+    const storeId = require.resolve('electron-store');
+    const realStore = require.cache[storeId];
+    let stored;
+
+    require.cache[storeId] = {
+        id: storeId,
+        filename: storeId,
+        loaded: true,
+        exports: class { get(key) { return key === 'repoContextSubpaths' ? stored : undefined; } },
+    };
+
+    try {
+        const settingsService = require(SETTINGS_MODULE);
+
+        stored = ['src/features/listen', '  src/ui  '];
+        const well = await settingsService.getRepoContextSubpaths();
+        check(well.length === 2 && well[0] === 'src/features/listen' && well[1] === 'src/ui',
+            'getRepoContextSubpaths returns the stored array, trimmed');
+
+        for (const bad of [undefined, null, 'src', 42, { '0': 'src' }, ['src', 7], ['src', '']]) {
+            stored = bad;
+            const read = await settingsService.getRepoContextSubpaths();
+            check(Array.isArray(read) && read.length === 0,
+                `getRepoContextSubpaths reads ${JSON.stringify(bad) || String(bad)} as not configured`);
+        }
+    } finally {
+        if (realStore) require.cache[storeId] = realStore;
+        else delete require.cache[storeId];
+    }
+}
+
 async function main() {
     await checkTargetRepo();
     fixture = await buildFixture();
     await checkFixture();
+    await checkGlassSubpath();
     checkServiceSentinel();
     await checkServiceRootHandling();
+    await checkSettingsGetter();
 }
 
 function cleanup() {

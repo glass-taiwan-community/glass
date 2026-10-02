@@ -488,6 +488,7 @@ async function setSaveAskScreenshots(enabled) {
 // so neither setting can move underneath a sign-in.
 const ASK_MODEL_OVERRIDE_KEY = 'askModelOverride';
 const ASK_ATTACH_SCREEN_KEY = 'askAttachScreen';
+const REPO_CONTEXT_SUBPATHS_KEY = 'repoContextSubpaths';
 
 function isAskModelOverride(value) {
     return !!value
@@ -544,6 +545,25 @@ async function setAskAttachScreen(enabled) {
     } catch (error) {
         console.error('[SettingsService] Error setting ask-attach-screen:', error.message);
         return { success: false, error: error.message };
+    }
+}
+
+/**
+ * The subpaths the repo pack is restricted to, empty meaning the whole repository.
+ *
+ * Returns [] for anything that is not an array of non-empty strings. The store file is hand-edited
+ * JSON and this value decides which files Ask can see, so a half-written value has to read as "not
+ * configured" rather than restrict the pack to a shape repoPack would then refuse outright.
+ */
+async function getRepoContextSubpaths() {
+    try {
+        const stored = store.get(REPO_CONTEXT_SUBPATHS_KEY);
+        if (!Array.isArray(stored)) return [];
+        if (!stored.every(entry => typeof entry === 'string' && entry.trim() !== '')) return [];
+        return stored.map(entry => entry.trim());
+    } catch (error) {
+        console.error('[SettingsService] Error getting repo-context subpaths:', error.message);
+        return [];
     }
 }
 
@@ -611,6 +631,7 @@ module.exports = {
     setAskModelOverride,
     getAskAttachScreen,
     setAskAttachScreen,
+    getRepoContextSubpaths,
     setSttLanguageSetting,
     SUPPORTED_STT_LANGUAGES,
     // Model settings facade

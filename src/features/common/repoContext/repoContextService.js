@@ -14,6 +14,7 @@ const store = new Store({ name: 'pickle-glass-settings' });
 
 const ROOT_KEY = 'repoContextRootPath';
 const INCLUDE_KEY = 'repoContextIncludePaths';
+const SUBPATHS_KEY = 'repoContextSubpaths';
 
 /**
  * An empty block is indistinguishable from a loaded pack in the answer, the only channel the user
@@ -34,6 +35,28 @@ function configuredRoot() {
     } catch (err) {
         console.error('[RepoContext] could not read the configured root:', err.message);
         return null;
+    }
+}
+
+/**
+ * The two path lists are hand-edited JSON, so a bare string where the array belongs is a plausible
+ * typo. Coerced to "not configured" and warned about rather than passed on, because buildRepoPack
+ * would throw on it, build() would catch, and the user would get the sentinel saying nothing is
+ * loaded with no way to tell a typo from a missing repo. The whole repository with a visible
+ * manifest is the better failure, and the warn is the only channel that can name the cause.
+ */
+function configuredList(key) {
+    try {
+        const stored = store.get(key);
+        if (stored === undefined || stored === null) return [];
+        if (Array.isArray(stored) && stored.every(entry => typeof entry === 'string' && entry.trim() !== '')) {
+            return stored.map(entry => entry.trim());
+        }
+        console.warn(`[RepoContext] ignoring ${key}: expected an array of non-empty strings`);
+        return [];
+    } catch (err) {
+        console.error(`[RepoContext] could not read ${key}:`, err.message);
+        return [];
     }
 }
 
@@ -81,7 +104,13 @@ function refresh() {
 async function build(root) {
     if (!root) return false;
     try {
-        const pack = await buildRepoPack(root, { includePaths: store.get(INCLUDE_KEY) || [] });
+        // Read from the store directly rather than through settingsService.getRepoContextSubpaths,
+        // which exists for a later UI: settingsService pulls in electron, windowManager and
+        // modelStateService, and this module is deliberately loadable with none of them.
+        const pack = await buildRepoPack(root, {
+            includePaths: configuredList(INCLUDE_KEY),
+            subpaths: configuredList(SUBPATHS_KEY),
+        });
 
         // The setting can change while a build is running. Installing a pack for a root the user
         // has already left would both answer about the wrong repo and evict a working pack for the

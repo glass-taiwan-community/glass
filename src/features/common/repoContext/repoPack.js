@@ -21,8 +21,9 @@ const execFile = util.promisify(require('child_process').execFile);
  * @typedef {'binary'|'too-large'|'over-budget'|'unreadable'|'sensitive'} OmitReason
  * @typedef {{ path: string, bytes: number, text: string }} PackedFile
  * @typedef {{ path: string, bytes: number|null, reason: OmitReason }} OmittedFile
- * @typedef {{ root: string, builtAt: number, files: PackedFile[], omitted: OmittedFile[],
- *             sourceBytes: number, estTokens: number, text: string }} RepoPack
+ * @typedef {{ root: string, builtAt: number, subpaths: string[], files: PackedFile[],
+ *             omitted: OmittedFile[], sourceBytes: number, estTokens: number,
+ *             text: string }} RepoPack
  */
 
 const DEFAULT_POLICY = {
@@ -184,19 +185,46 @@ async function gitLsFiles(root) {
 }
 
 /**
- * Opt-in paths come from a settings file, so they are untrusted spellings. Normalizing first means
- * `./slice/verify.sh` dedupes against git's `slice/verify.sh` instead of being packed a second
- * time and double-charged to the budget, and the containment check stops `../../.ssh/known_hosts`
- * being read at all.
+ * Both path lists come from a settings file, so they are untrusted spellings. Normalizing first
+ * means `./slice/verify.sh` dedupes against git's `slice/verify.sh` instead of being packed a
+ * second time and double-charged to the budget, and the containment check stops
+ * `../../.ssh/known_hosts` being read at all. `kind` is in the message because the two lists fail
+ * for the same reasons and the user has to know which setting to go and fix.
+ *
+ * The root itself relativizes to '' and is returned, not refused: for a subpath that is the
+ * legitimate "everything" spelling, and refusing it as resolving outside the root would send the
+ * user hunting a path problem that does not exist.
  */
+function toRepoRelative(root, entry, kind) {
+    const relative = path.relative(root, path.resolve(root, entry));
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error(`[RepoPack] ${kind} ${entry} resolves outside ${root}`);
+    }
+    return relative;
+}
+
 function normalizeIncludePaths(root, includePaths) {
     return includePaths.map(entry => {
-        const relative = path.relative(root, path.resolve(root, entry));
-        if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-            throw new Error(`[RepoPack] opt-in path ${entry} resolves outside ${root}`);
-        }
+        const relative = toRepoRelative(root, entry, 'opt-in path');
+        // The root is a directory, so an opt-in entry naming it names no file to add.
+        if (!relative) throw new Error(`[RepoPack] opt-in path ${entry} resolves outside ${root}`);
         return relative;
     });
+}
+
+/** '' is kept rather than dropped, so the per-subpath union in matchesSubpath stays correct. */
+function normalizeSubpaths(root, subpaths) {
+    return subpaths.map(entry => toRepoRelative(root, entry, 'subpath'));
+}
+
+/**
+ * Segment-aware, so `src/features/listen` does not also select `src/features/listener/x.js`. A
+ * subpath naming an exact file selects that file, and '' (the root) selects everything.
+ */
+function matchesSubpath(relPath, subpaths) {
+    return subpaths.some(subpath => subpath === ''
+        || relPath === subpath
+        || relPath.startsWith(`${subpath}/`));
 }
 
 /**
@@ -225,10 +253,25 @@ function render(pack, policy) {
     const lines = [
         `=== repo: ${path.basename(pack.root)} @ ${new Date(pack.builtAt).toISOString()}`
         + ` (${pack.files.length} files, ${pack.sourceBytes} B, ~${pack.estTokens} tokens) ===`,
+    ];
+
+    // Under restriction the unselected files never enter `omitted`, so the not-included list below
+    // cannot name them and the model loses its grounds for denying them. Naming the restriction
+    // inside the prompt is the mechanism the finding credits for the over-budget 20,425-token pack
+    // answering correctly in a live mock interview.
+    //
+    // A subpath spelling the repo root selects everything, so there is no excluded remainder and
+    // the second line would be false. That case renders exactly like no subpaths at all.
+    if (pack.subpaths.length && !pack.subpaths.includes('')) {
+        lines.push(`=== restricted to: ${pack.subpaths.join(', ')} ===`,
+            'The rest of this repository is not in context; do not claim knowledge of it.');
+    }
+
+    lines.push(
         '=== manifest ===',
         ...pack.files.map(file => `INCLUDED ${file.bytes}  ${file.path}`),
         ...shown.map(entry => `OMITTED  ${entry.reason} ${entry.path}`),
-    ];
+    );
     if (rest > 0) lines.push(`OMITTED  ... and ${rest} more`);
 
     // The manifest and this list live INSIDE the text so that a named omission produces "that file
@@ -247,9 +290,11 @@ function render(pack, policy) {
 
 /**
  * @param {string} root Absolute path to a git repository or worktree.
- * @param {{ includePaths?: string[], policy?: object }} [options] `includePaths` are relative
- *   paths that `.gitignore` hides and the user wants anyway; the real gap from git was one
- *   nameable file, which justifies an opt-in list rather than a different enumerator.
+ * @param {{ includePaths?: string[], subpaths?: string[], policy?: object }} [options]
+ *   `includePaths` are relative paths that `.gitignore` hides and the user wants anyway; the real
+ *   gap from git was one nameable file, which justifies an opt-in list rather than a different
+ *   enumerator. `subpaths` RESTRICT the enumeration to the files under them, where `includePaths`
+ *   only ever add; empty or absent means the whole repository, exactly as before.
  * @returns {Promise<RepoPack>}
  */
 async function buildRepoPack(root, options = {}) {
@@ -257,7 +302,34 @@ async function buildRepoPack(root, options = {}) {
     await assertGitRoot(root);
 
     const optIn = normalizeIncludePaths(root, options.includePaths || []);
-    const enumerated = [...new Set([...(await gitLsFiles(root)), ...optIn])];
+    const subpaths = normalizeSubpaths(root, options.subpaths || []);
+    const tracked = await gitLsFiles(root);
+
+    // Filtered here rather than handed to git as a pathspec. git keeps reading pathspec magic such
+    // as `:(exclude)` after `--`, and these spellings come from a hand-edited settings file, so
+    // putting them in git's argv would make an untrusted string part of the enumeration command.
+    // A prefix filter keeps it out of git and keeps the single ls-files call measured at 26-37 ms.
+    const selected = subpaths.length
+        ? tracked.filter(relPath => matchesSubpath(relPath, subpaths))
+        : tracked;
+
+    // Restrict first, then add the opt-ins: an opt-in path outside the selected subpaths is still
+    // honored, because the user named that one file explicitly.
+    const enumerated = [...new Set([...selected, ...optIn])];
+
+    // Zero files is a configuration error, the same class as a root with no .git, and an empty
+    // pack would read as a repository with nothing in it. A per-SUBPATH refusal deliberately does
+    // not live here: with one of three subpaths mistyped, the alternative to a partial pack is
+    // total silence at the moment the user needs an answer, and the manifest already makes the
+    // partiality visible. scripts/size-repo-pack.js refuses a single unmatched subpath instead, at
+    // configuration time, where the user can still act on it.
+    if (!enumerated.length) {
+        const detail = subpaths.length
+            ? `no tracked file is under any of the subpaths ${subpaths.map(sub => sub || '.').join(', ')}`
+            : 'git reports no tracked files in it';
+        throw new Error(`[RepoPack] refusing to pack ${root}: ${detail}`);
+    }
+
     const ordered = enumerated
         .map(relPath => ({ relPath, band: bandOf(relPath, policy) }))
         .sort((a, b) => a.band - b.band || (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
@@ -294,6 +366,7 @@ async function buildRepoPack(root, options = {}) {
     const draft = {
         root,
         builtAt: Date.now(),
+        subpaths,
         files,
         omitted,
         sourceBytes,
@@ -310,4 +383,8 @@ async function buildRepoPack(root, options = {}) {
     return pack;
 }
 
-module.exports = { buildRepoPack, DEFAULT_POLICY };
+// matchesSubpath is exported so the sizer counts per-subpath matches by the same rule the pack
+// enumerated by. A second copy of the segment-aware test would drift silently and make the sizer
+// report matches the pack does not have. The verifier deliberately does not use it, because an
+// expectation built from the matcher under test confirms itself.
+module.exports = { buildRepoPack, matchesSubpath, DEFAULT_POLICY };
