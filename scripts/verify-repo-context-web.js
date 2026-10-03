@@ -1,0 +1,269 @@
+#!/usr/bin/env node
+/**
+ * node scripts/verify-repo-context-web.js
+ *
+ * Exits 0 only when every assertion holds. Covers the repo-context settings page in the web GUI:
+ * the validation in src/features/common/repoContext/applySettings.js, and the two string seams
+ * between the Express route and the Electron main process that no compiler or linter checks.
+ *
+ * Why the seams get their own group. The route names a channel ('get-repo-context') that reaches
+ * src/index.js's switch as a literal `case` label, and utils/api.ts names a mount path that
+ * reaches backend_node/index.js as a literal `app.use` argument. A typo in either is an HTTP 500
+ * at runtime and nothing else in the repo notices. So both sides are EXTRACTED FROM THE SOURCE
+ * TEXT here rather than pasted in as strings, which would only prove this file agrees with itself.
+ *
+ * Why the validation gets driven for real. src/index.js requires electron, better-sqlite3 and the
+ * window manager at module load, so the switch cannot be loaded under plain node at all. The rules
+ * live in applySettings.js precisely so this file can require them, hand them a fake store and
+ * real temporary git repositories, and read the refusal strings a user would see. Every refusal
+ * case runs through one helper that also proves the store was left untouched, so a case added later
+ * cannot forget that check.
+ *
+ * `git ls-files` reads the index, so the temporary repositories are `git init` plus `git add` with
+ * no commit: no commit means no user.email requirement and no second-long setup per case.
+ */
+
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+
+const { applySettings } = require('../src/features/common/repoContext/applySettings');
+const { KEYS } = require('../src/features/common/repoContext/config');
+
+const REPO_ROOT = path.join(__dirname, '..');
+
+const APPLY_SETTINGS = 'src/features/common/repoContext/applySettings.js';
+
+const UNRELATED_KEY = 'contentProtection';
+const UNRELATED_VALUE = true;
+
+const scratch = [];
+
+function check(ok, message) {
+    assert.ok(ok, message);
+    console.log(`ok   ${message}`);
+}
+
+function read(relPath) {
+    return fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8');
+}
+
+function run(file, args) {
+    execFileSync(file, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+/** Only get/set/delete, the three methods applySettings is allowed to use. */
+function fakeStore(seed = {}) {
+    const map = new Map(Object.entries(seed));
+    const store = {
+        get: key => map.get(key),
+        set: (key, value) => { map.set(key, value); },
+        delete: key => { map.delete(key); },
+    };
+    return { store, map };
+}
+
+function snapshot(map) {
+    const entries = [...map.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    return JSON.stringify(entries);
+}
+
+function tempDir() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-repo-context-web-'));
+    scratch.push(dir);
+    return dir;
+}
+
+function writeTree(dir, files) {
+    for (const [relPath, body] of Object.entries(files)) {
+        const absolute = path.join(dir, relPath);
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+        fs.writeFileSync(absolute, body);
+    }
+}
+
+/**
+ * @param {Record<string, string>} files every path written into the tree
+ * @param {string[]} [tracked] the subset handed to `git add`, defaulting to all of them. Paths are
+ *   listed explicitly rather than staged with `.` or `-A` so the command can only ever touch the
+ *   files this function just wrote.
+ */
+function gitRepo(files, tracked) {
+    const dir = tempDir();
+    writeTree(dir, files);
+    run('git', ['-C', dir, 'init', '-q']);
+    run('git', ['-C', dir, 'add', '--', ...(tracked || Object.keys(files))]);
+    return dir;
+}
+
+/**
+ * Seeds a store, snapshots it, applies the payload, and asserts both the refusal and that the store
+ * came out unchanged. Routing every refusal case through here is what makes "a refused payload
+ * never writes" structural rather than something each case has to remember.
+ */
+async function checkRefusal(label, payload, expectations) {
+    const { store, map } = fakeStore({ [UNRELATED_KEY]: UNRELATED_VALUE });
+    const before = snapshot(map);
+    const result = await applySettings(store, payload);
+
+    check(result.ok === false && typeof result.reason === 'string' && result.reason !== '',
+        `${label} refuses with a reason string rather than throwing`);
+    for (const needle of expectations) {
+        check(result.reason.includes(needle),
+            `${label} names "${needle}" in its reason, which is what the user has to act on`);
+    }
+    check(snapshot(map) === before, `${label} left the store completely unmodified`);
+    return result;
+}
+
+async function checkPayloadShapeRefusals() {
+    await checkRefusal('a string payload where an object belongs', 'root=/tmp', ['string']);
+    await checkRefusal('a null payload', null, ['null']);
+    await checkRefusal('a non-string root', { root: 42 }, [KEYS.root, 'number']);
+    await checkRefusal('subpaths given as a bare string', { root: '/tmp', subpaths: 'src' },
+        [KEYS.subpaths]);
+    await checkRefusal('includePaths given as a bare string', { root: '/tmp', includePaths: '.env' },
+        [KEYS.includePaths]);
+    await checkRefusal('subpaths holding an empty string', { root: '/tmp', subpaths: ['src', ''] },
+        [KEYS.subpaths, 'non-empty']);
+    await checkRefusal('includePaths holding a blank string', { root: '/tmp', includePaths: ['  '] },
+        [KEYS.includePaths, 'non-empty']);
+}
+
+async function checkRootRefusals() {
+    const absent = path.join(tempDir(), 'no-such-directory');
+    await checkRefusal('a root that does not exist', { root: absent }, [absent, 'does not exist']);
+
+    const file = path.join(tempDir(), 'a-file.txt');
+    fs.writeFileSync(file, 'not a directory\n');
+    await checkRefusal('a root that is a file', { root: file }, [file, 'is not a directory']);
+
+    const bare = tempDir();
+    writeTree(bare, { 'a.js': 'module.exports = 1;\n' });
+    await checkRefusal('a directory with no .git entry', { root: bare }, ['has no .git entry']);
+}
+
+async function checkSelectionRefusals() {
+    const repo = gitRepo({ 'lib/a.js': 'a\n', 'src/b.js': 'b\n' });
+
+    await checkRefusal('a subpath resolving outside the root',
+        { root: repo, subpaths: ['../elsewhere'] }, ['resolves outside', repo]);
+
+    // 'lib' is the matching spelling and 'src/nope-typo' the mistyped one. They share no prefix on
+    // purpose, so asserting 'lib' is ABSENT from the reason proves the count is per subpath rather
+    // than a blanket re-listing of everything that was given.
+    const partial = await checkRefusal('one matching subpath alongside one that matches nothing',
+        { root: repo, subpaths: ['lib', 'src/nope-typo'] }, ['src/nope-typo']);
+    check(!partial.reason.includes('lib'),
+        'the partial-match refusal names only the unmatched spelling, not the one that matched');
+
+    await checkRefusal('every subpath matching nothing, which buildRepoPack itself refuses',
+        { root: repo, subpaths: ['nope-one', 'nope-two'] },
+        ['no tracked file is under any of the subpaths']);
+
+    await checkRefusal('an opt-in include path that does not exist on disk',
+        { root: repo, includePaths: ['secrets/missing.env'] }, ['secrets/missing.env']);
+}
+
+/** A tracked tree plus one untracked file, which is what includePaths exists to pull back in. */
+function persistenceRepo() {
+    const files = { 'lib/a.js': 'a\n', 'src/b.js': 'b\n', 'extra/opt.txt': 'opt\n' };
+    return gitRepo(files, ['lib/a.js', 'src/b.js']);
+}
+
+async function checkPersistence() {
+    const repo = persistenceRepo();
+    const payload = { root: repo, subpaths: ['lib'], includePaths: ['extra/opt.txt'] };
+
+    const { store, map } = fakeStore({ [UNRELATED_KEY]: UNRELATED_VALUE });
+    const first = await applySettings(store, payload);
+    check(first.ok === true, 'a payload whose pack builds is accepted');
+
+    const expected = [UNRELATED_KEY, ...Object.values(KEYS)].sort();
+    check(JSON.stringify([...map.keys()].sort()) === JSON.stringify(expected),
+        'a valid payload persists exactly the three repo-context keys and adds nothing else,'
+        + ' against a key set derived from config.KEYS');
+    check(map.get(KEYS.root) === repo, 'the persisted root is the trimmed path that was given');
+    check(JSON.stringify(map.get(KEYS.subpaths)) === JSON.stringify(['lib'])
+        && JSON.stringify(map.get(KEYS.includePaths)) === JSON.stringify(['extra/opt.txt']),
+        'both persisted lists hold exactly the normalized entries that were given');
+    check(map.get(UNRELATED_KEY) === UNRELATED_VALUE,
+        'an unrelated key already in the store keeps its value through a successful save');
+
+    const after = snapshot(map);
+    const second = await applySettings(store, payload);
+    check(second.ok === true && snapshot(map) === after,
+        'applying the same valid payload twice leaves byte-identical store contents');
+}
+
+async function checkEmptyListsWriteNoKey() {
+    const repo = persistenceRepo();
+    const { store, map } = fakeStore({ [UNRELATED_KEY]: UNRELATED_VALUE });
+    const result = await applySettings(store, { root: repo, subpaths: [], includePaths: [] });
+
+    check(result.ok === true, 'a root with both lists empty is accepted');
+    check(!map.has(KEYS.subpaths) && !map.has(KEYS.includePaths),
+        'empty lists write no key at all, so nothing stale can be left behind for a later root');
+    check(map.get(KEYS.root) === repo, 'the root is still persisted when both lists are empty');
+}
+
+async function checkTurnOff() {
+    const seeded = {
+        [UNRELATED_KEY]: UNRELATED_VALUE,
+        [KEYS.root]: '/some/previous/repo',
+        [KEYS.subpaths]: ['lib'],
+        [KEYS.includePaths]: ['extra/opt.txt'],
+    };
+    for (const [label, root] of [['an empty root', ''], ['a whitespace-only root', '   ']]) {
+        const { store, map } = fakeStore(seeded);
+        const result = await applySettings(store, { root });
+        check(result.ok === true, `${label} is accepted as "turn it off"`);
+        check(Object.values(KEYS).every(key => !map.has(key)),
+            `${label} deletes all three repo-context keys`);
+        check(map.get(UNRELATED_KEY) === UNRELATED_VALUE,
+            `${label} leaves an unrelated key in the store untouched`);
+    }
+}
+
+function checkNoHardcodedBudget(relPaths) {
+    for (const relPath of relPaths) {
+        check(!read(relPath).includes('20000'),
+            `${relPath} contains no hardcoded 20000, so the budget can only come from`
+            + ' DEFAULT_POLICY.budgetTokens');
+    }
+}
+
+function checkFilesExist(relPaths) {
+    for (const relPath of relPaths) {
+        check(fs.existsSync(path.join(REPO_ROOT, relPath)), `${relPath} exists`);
+    }
+}
+
+async function main() {
+    await checkPayloadShapeRefusals();
+    await checkRootRefusals();
+    await checkSelectionRefusals();
+    await checkPersistence();
+    await checkEmptyListsWriteNoKey();
+    await checkTurnOff();
+
+    checkFilesExist([APPLY_SETTINGS]);
+    checkNoHardcodedBudget([APPLY_SETTINGS]);
+}
+
+function cleanup() {
+    for (const dir of scratch) fs.rmSync(dir, { recursive: true, force: true });
+}
+
+main()
+    .then(() => {
+        cleanup();
+        console.log('\nall assertions passed');
+    })
+    .catch(err => {
+        cleanup();
+        console.error(`\nFAILED: ${err.message}`);
+        process.exit(1);
+    });
