@@ -9,12 +9,13 @@
 
 const Store = require('electron-store');
 const { buildRepoPack } = require('./repoPack');
+const { KEYS, normalizeList } = require('./config');
 
 const store = new Store({ name: 'pickle-glass-settings' });
 
-const ROOT_KEY = 'repoContextRootPath';
-const INCLUDE_KEY = 'repoContextIncludePaths';
-const SUBPATHS_KEY = 'repoContextSubpaths';
+const ROOT_KEY = KEYS.root;
+const INCLUDE_KEY = KEYS.includePaths;
+const SUBPATHS_KEY = KEYS.subpaths;
 
 /**
  * An empty block is indistinguishable from a loaded pack in the answer, the only channel the user
@@ -39,21 +40,14 @@ function configuredRoot() {
 }
 
 /**
- * The two path lists are hand-edited JSON, so a bare string where the array belongs is a plausible
- * typo. Coerced to "not configured" and warned about rather than passed on, because buildRepoPack
- * would throw on it, build() would catch, and the user would get the sentinel saying nothing is
- * loaded with no way to tell a typo from a missing repo. The whole repository with a visible
- * manifest is the better failure, and the warn is the only channel that can name the cause.
+ * The validation lives in ./config so a CLI outside Electron applies the identical rules without
+ * requiring this module, which would construct a Store against the wrong path.
  */
 function configuredList(key) {
     try {
-        const stored = store.get(key);
-        if (stored === undefined || stored === null) return [];
-        if (Array.isArray(stored) && stored.every(entry => typeof entry === 'string' && entry.trim() !== '')) {
-            return stored.map(entry => entry.trim());
-        }
-        console.warn(`[RepoContext] ignoring ${key}: expected an array of non-empty strings`);
-        return [];
+        const { list, rejected } = normalizeList(store.get(key));
+        if (rejected) console.warn(`[RepoContext] ignoring ${key}: expected an array of non-empty strings`);
+        return list;
     } catch (err) {
         console.error(`[RepoContext] could not read ${key}:`, err.message);
         return [];
@@ -132,4 +126,42 @@ async function build(root) {
     }
 }
 
-module.exports = { promptBlock, refresh, SENTINEL };
+/**
+ * What is configured and what is actually being served, for the Ask window's status line, the CLI
+ * and the settings page. Synchronous and never throws, same contract as promptBlock, because the
+ * status line renders on the same path an Ask does.
+ *
+ * `withheld` is the case promptBlock already refuses to serve: a pack exists but it was built from
+ * a different root than the one now configured. It reads identically to "nothing loaded" in the
+ * answer, and the two want different wording in the UI -- one is a failed refresh, the other is an
+ * empty setting.
+ *
+ * @returns {{ root: string|null, subpaths: string[], includePaths: string[], loaded: boolean,
+ *             withheld: boolean, files: number, estTokens: number, omitted: number,
+ *             packedAt: number|null, name: string|null }}
+ */
+function status() {
+    const empty = {
+        root: null, subpaths: [], includePaths: [], loaded: false, withheld: false,
+        files: 0, estTokens: 0, omitted: 0, packedAt: null, name: null,
+    };
+    try {
+        const root = configuredRoot();
+        const base = { ...empty, root, subpaths: configuredList(SUBPATHS_KEY), includePaths: configuredList(INCLUDE_KEY) };
+        if (!root || !lastGood) return base;
+        if (lastGood.root !== root) return { ...base, withheld: true };
+        return {
+            ...base,
+            loaded: true,
+            files: lastGood.files.length,
+            estTokens: lastGood.estTokens,
+            omitted: lastGood.omitted.length,
+            packedAt: lastGood.builtAt ?? null,
+            name: require('node:path').basename(root),
+        };
+    } catch {
+        return empty;
+    }
+}
+
+module.exports = { promptBlock, refresh, status, SENTINEL };
