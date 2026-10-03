@@ -321,6 +321,15 @@ function LoadedPanel({ status }: { status: RepoContextStatus }) {
             </div>
           </div>
 
+          {/* Measured, not hedging: the byte-per-token ratio is a property of the content, 2.289
+              on one repo and 3.016 on a JavaScript-heavy selection of this one, so a single
+              constant is wrong in both directions. See memory-bank/finding-ttft-vs-prompt-size.md. */}
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Estimated from bytes, so it reads high or low depending on what the files hold. Run{' '}
+            <span className="font-mono">node scripts/size-repo-pack.js</span> against the root for an
+            exact count.
+          </p>
+
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
             Packed at {status.packedAt ? new Date(status.packedAt).toLocaleString() : 'an unknown time'}
           </p>
