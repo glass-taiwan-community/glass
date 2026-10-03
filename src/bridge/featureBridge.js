@@ -10,6 +10,7 @@ const shortcutsService = require('../features/shortcuts/shortcutsService');
 const presetRepository = require('../features/common/repositories/preset');
 const localAIManager = require('../features/common/services/localAIManager');
 const askService = require('../features/ask/askService');
+const repoContextService = require('../features/common/repoContext/repoContextService');
 const listenService = require('../features/listen/listenService');
 const permissionService = require('../features/common/services/permissionService');
 const encryptionService = require('../features/common/services/encryptionService');
@@ -115,6 +116,7 @@ module.exports = {
     });
     ipcMain.handle('ask:toggleAskButton', async () => await askService.toggleAskButton());
     ipcMain.handle('ask:closeAskWindow',  async () => await askService.closeAskWindow());
+    ipcMain.handle('repoContext:getStatus', () => repoContextService.status());
     
     // Listen
     ipcMain.handle('listen:sendMicAudio', async (event, { data, mimeType }) => await listenService.handleSendMicAudioContent(data, mimeType));
