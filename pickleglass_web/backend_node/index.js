@@ -33,6 +33,7 @@ function createApp(eventBridge) {
     app.use('/api/presets', require('./routes/presets'));
     app.use('/api/snippets', require('./routes/snippets'));
     app.use('/api/precontext', require('./routes/precontext'));
+    app.use('/api/repo-context', require('./routes/repoContext'));
 
     // Serve saved screen-only Ask screenshots from userData/ask-screenshots. This express app
     // runs in the Electron main process, so it can read userData directly. path.basename

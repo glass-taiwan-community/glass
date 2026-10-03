@@ -344,6 +344,10 @@ function setupWebDataHandlers() {
     const presetRepository = require('./features/common/repositories/preset');
     const snippetRepository = require('./features/common/repositories/snippet');
     const preContextRepository = require('./features/common/repositories/precontext');
+    const Store = require('electron-store');
+    const { applySettings } = require('./features/common/repoContext/applySettings');
+    const { DEFAULT_POLICY } = require('./features/common/repoContext/repoPack');
+    const settingsStore = new Store({ name: 'pickle-glass-settings' });
 
     const handleRequest = async (channel, responseChannel, payload) => {
         let result;
@@ -498,6 +502,34 @@ function setupWebDataHandlers() {
                     listenService.generateInitialSummary(payload.content);
                     result = { success: true };
                     break;
+
+                // REPO CONTEXT
+                // Braced, unlike most cases above: the existing ones declare bare consts that
+                // share the whole switch block's scope, so an unbraced case reusing a name here
+                // would be a SyntaxError rather than a lint warning.
+                case 'get-repo-context': {
+                    // budgetTokens travels with the status so the page can render estTokens
+                    // against the real budget instead of a second copy of the number.
+                    result = { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens };
+                    break;
+                }
+                case 'save-repo-context': {
+                    const applied = await applySettings(settingsStore, payload);
+                    if (!applied.ok) {
+                        result = applied;
+                        break;
+                    }
+                    // A setting that does nothing until the next launch is the failure this page
+                    // exists to end, so the pack is rebuilt now and `refreshed` is reported:
+                    // false means no pack was installed and Ask is still serving the sentinel.
+                    const refreshed = await repoContextService.refresh();
+                    result = {
+                        ok: true,
+                        refreshed,
+                        status: { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens },
+                    };
+                    break;
+                }
 
                 default:
                     throw new Error(`Unknown web data channel: ${channel}`);

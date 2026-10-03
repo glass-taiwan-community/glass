@@ -35,6 +35,11 @@ const { KEYS } = require('../src/features/common/repoContext/config');
 const REPO_ROOT = path.join(__dirname, '..');
 
 const APPLY_SETTINGS = 'src/features/common/repoContext/applySettings.js';
+const ROUTE = 'pickleglass_web/backend_node/routes/repoContext.js';
+const BACKEND_INDEX = 'pickleglass_web/backend_node/index.js';
+const MAIN = 'src/index.js';
+
+const EXPECTED_CHANNELS = 2;
 
 const UNRELATED_KEY = 'contentProtection';
 const UNRELATED_VALUE = true;
@@ -227,6 +232,42 @@ async function checkTurnOff() {
     }
 }
 
+function matchAll(source, pattern) {
+    return [...new Set([...source.matchAll(pattern)].map(match => match[1]))];
+}
+
+/**
+ * The route and the switch are joined only by two string literals. Both sides are read out of the
+ * source here, so renaming one without the other fails this check instead of becoming an HTTP 500
+ * the first time someone opens the page.
+ */
+function checkChannelNames() {
+    const channels = matchAll(read(ROUTE), /ipcRequest\(\s*req\s*,\s*'([^']+)'/g);
+    const labels = matchAll(read(MAIN), /case\s+'([^']+)'\s*:/g);
+
+    check(channels.length === EXPECTED_CHANNELS,
+        `${ROUTE} passes ipcRequest ${EXPECTED_CHANNELS} distinct channel names`
+        + ` (${channels.join(', ')}), so the subset check below cannot pass vacuously`);
+    check(labels.length > EXPECTED_CHANNELS,
+        `${MAIN} contributes ${labels.length} case labels to compare against`);
+    for (const channel of channels) {
+        check(labels.includes(channel),
+            `the channel ${channel} that ${ROUTE} sends has a matching case label in ${MAIN}`);
+    }
+}
+
+/**
+ * @returns {string} the path the route is mounted at, read from the mount line rather than assumed,
+ *   so the api.ts check compares against what the server actually serves.
+ */
+function mountPath() {
+    const [mounted] = matchAll(read(BACKEND_INDEX),
+        /app\.use\(\s*'([^']+)'\s*,\s*require\('\.\/routes\/repoContext'\)\s*\)/g);
+    check(typeof mounted === 'string' && mounted.startsWith('/api/'),
+        `${BACKEND_INDEX} mounts ./routes/repoContext under an /api path (${mounted})`);
+    return mounted;
+}
+
 function checkNoHardcodedBudget(relPaths) {
     for (const relPath of relPaths) {
         check(!read(relPath).includes('20000'),
@@ -249,8 +290,10 @@ async function main() {
     await checkEmptyListsWriteNoKey();
     await checkTurnOff();
 
-    checkFilesExist([APPLY_SETTINGS]);
-    checkNoHardcodedBudget([APPLY_SETTINGS]);
+    checkFilesExist([APPLY_SETTINGS, ROUTE]);
+    checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE]);
+    checkChannelNames();
+    mountPath();
 }
 
 function cleanup() {
