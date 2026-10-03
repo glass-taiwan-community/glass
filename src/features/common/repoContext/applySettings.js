@@ -54,12 +54,20 @@ function refuse(reason) {
  * @returns {Promise<{ok: true}|{ok: false, reason: string}>}
  */
 async function applySettings(store, payload) {
-    if (!present(payload) || typeof payload !== 'object') {
-        return refuse('expected an object holding root, subpaths and includePaths, but got '
-            + `${payload === null ? 'null' : typeof payload}`);
+    // Array.isArray is not redundant with the typeof test: `typeof [] === 'object'`, and an array
+    // carries no `root`, so without this a JSON array body would fall through to the turn-off branch
+    // below and clear a working configuration while answering ok.
+    if (!present(payload) || typeof payload !== 'object' || Array.isArray(payload)) {
+        const got = payload === null ? 'null' : Array.isArray(payload) ? 'an array' : typeof payload;
+        return refuse(`expected an object holding root, subpaths and includePaths, but got ${got}`);
     }
-    if (present(payload.root) && typeof payload.root !== 'string') {
-        return refuse(`${KEYS.root} must be a string path, but got ${typeof payload.root}`);
+    // Required, not optional, and that is the whole point. Turning the pack off has to be said out
+    // loud as an empty root; if an ABSENT root meant the same thing, a payload setting only
+    // `subpaths` would clear the root, discard the list it was handed and report success -- the
+    // silent-off outcome this page exists to end, reached through a different door.
+    if (typeof payload.root !== 'string') {
+        return refuse(`${KEYS.root} is required and must be a string. Send an empty string to turn`
+            + ` the repository context off. Got ${present(payload.root) ? typeof payload.root : 'nothing'}`);
     }
     for (const field of LIST_FIELDS) {
         if (present(payload[field]) && !Array.isArray(payload[field])) {
@@ -77,10 +85,18 @@ async function applySettings(store, payload) {
         lists[field] = list;
     }
 
-    const root = present(payload.root) ? payload.root.trim() : '';
+    const root = payload.root.trim();
     if (!root) {
         for (const key of Object.values(KEYS)) store.delete(key);
         return { ok: true };
+    }
+
+    // Said separately from "does not exist", which is what a relative root would otherwise report.
+    // It would be resolved against the Electron main process's working directory, which is `/` when
+    // the app is launched from Finder and is not a directory the user can see from this page.
+    if (!path.isAbsolute(root)) {
+        return refuse(`${root} is not an absolute path, and a relative one is resolved against the`
+            + " app's own working directory rather than anything visible here");
     }
 
     let rootStat;

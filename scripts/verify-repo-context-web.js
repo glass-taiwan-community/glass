@@ -129,7 +129,11 @@ async function checkRefusal(label, payload, expectations) {
 async function checkPayloadShapeRefusals() {
     await checkRefusal('a string payload where an object belongs', 'root=/tmp', ['string']);
     await checkRefusal('a null payload', null, ['null']);
+    // typeof [] is 'object', so this one is not covered by the string and null cases above.
+    await checkRefusal('an array payload', ['/tmp'], ['an array']);
     await checkRefusal('a non-string root', { root: 42 }, [KEYS.root, 'number']);
+    await checkRefusal('a payload with no root at all', { subpaths: ['src'] },
+        [KEYS.root, 'required']);
     await checkRefusal('subpaths given as a bare string', { root: '/tmp', subpaths: 'src' },
         [KEYS.subpaths]);
     await checkRefusal('includePaths given as a bare string', { root: '/tmp', includePaths: '.env' },
@@ -140,7 +144,35 @@ async function checkPayloadShapeRefusals() {
         [KEYS.includePaths, 'non-empty']);
 }
 
+/**
+ * The regression the two cases above exist for, asserted against a store that already holds a
+ * working configuration rather than only the unrelated key. An omitted root used to read as "turn it
+ * off", so a body setting just `subpaths` answered ok and deleted all three keys. checkRefusal's own
+ * store starts unconfigured, where deleting three absent keys is invisible.
+ */
+async function checkRootIsRequiredToClearAnything() {
+    const configured = {
+        [UNRELATED_KEY]: UNRELATED_VALUE,
+        [KEYS.root]: '/some/configured/repo',
+        [KEYS.subpaths]: ['lib'],
+    };
+    for (const [label, payload] of [
+        ['a payload with no root', { subpaths: ['src'] }],
+        ['an array payload', ['/tmp']],
+    ]) {
+        const { store, map } = fakeStore(configured);
+        const before = snapshot(map);
+        const result = await applySettings(store, payload);
+        check(result.ok === false && snapshot(map) === before,
+            `${label} refuses against an already-configured store and leaves the configured root and`
+            + ' subpaths exactly as they were, rather than silently turning the pack off');
+    }
+}
+
 async function checkRootRefusals() {
+    await checkRefusal('a relative root', { root: 'some/repo' },
+        ['is not an absolute path', 'some/repo']);
+
     const absent = path.join(tempDir(), 'no-such-directory');
     await checkRefusal('a root that does not exist', { root: absent }, [absent, 'does not exist']);
 
@@ -310,6 +342,7 @@ function checkFilesExist(relPaths) {
 
 async function main() {
     await checkPayloadShapeRefusals();
+    await checkRootIsRequiredToClearAnything();
     await checkRootRefusals();
     await checkSelectionRefusals();
     await checkPersistence();
