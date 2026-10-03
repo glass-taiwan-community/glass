@@ -737,6 +737,56 @@ export const savePreContext = async (data: PreContext): Promise<void> => {
   if (!response.ok) throw new Error('Failed to save pre-context');
 };
 
+// repoContextService.status() plus the budget it is measured against, so the page never carries a
+// second copy of the number.
+export interface RepoContextStatus {
+    root: string | null;
+    subpaths: string[];
+    includePaths: string[];
+    loaded: boolean;
+    withheld: boolean;
+    files: number;
+    estTokens: number;
+    omitted: number;
+    packedAt: number | null;
+    name: string | null;
+    budgetTokens: number;
+}
+
+export interface RepoContextSettings {
+    root: string;
+    subpaths: string[];
+    includePaths: string[];
+}
+
+// A union rather than one object with optional fields, which makes a reason on success and a status
+// on failure both unrepresentable.
+export type RepoContextSaveResult =
+  | { ok: true; refreshed: boolean; status: RepoContextStatus }
+  | { ok: false; reason: string }
+
+// No Firebase branch, following getPreContext below: a repo root is machine-scoped, so there is no
+// per-account copy of it to sync.
+export const getRepoContext = async (): Promise<RepoContextStatus> => {
+  const response = await apiCall('/api/repo-context', { method: 'GET' });
+  if (!response.ok) throw new Error('Failed to fetch repo context');
+  return response.json();
+};
+
+export const saveRepoContext = async (data: RepoContextSettings): Promise<RepoContextSaveResult> => {
+  const response = await apiCall('/api/repo-context', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  // The body is read before the status is judged. A refusal arrives as HTTP 400 carrying the reason
+  // that names which path was wrong, and throwing on !response.ok would discard the only thing the
+  // user can act on.
+  const body = await response.json().catch(() => null);
+  if (body && body.ok === false) return body as RepoContextSaveResult;
+  if (!response.ok) throw new Error('Failed to save repo context');
+  return body as RepoContextSaveResult;
+};
+
 export const preloadAndStartSession = async (data: PreContext): Promise<void> => {
   const response = await apiCall('/api/precontext/preload-and-start', {
     method: 'POST',

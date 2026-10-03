@@ -38,8 +38,11 @@ const APPLY_SETTINGS = 'src/features/common/repoContext/applySettings.js';
 const ROUTE = 'pickleglass_web/backend_node/routes/repoContext.js';
 const BACKEND_INDEX = 'pickleglass_web/backend_node/index.js';
 const MAIN = 'src/index.js';
+const API = 'pickleglass_web/utils/api.ts';
+const PAGE = 'pickleglass_web/app/repo-context/page.tsx';
 
 const EXPECTED_CHANNELS = 2;
+const API_HELPERS = ['getRepoContext', 'saveRepoContext'];
 
 const UNRELATED_KEY = 'contentProtection';
 const UNRELATED_VALUE = true;
@@ -268,6 +271,29 @@ function mountPath() {
     return mounted;
 }
 
+/**
+ * One helper's own text, sliced out by name. Scanning the whole of api.ts instead would let an
+ * apiCall in any of its forty other helpers stand in for one of these two.
+ */
+function helperBody(source, name) {
+    const start = source.indexOf(`export const ${name} =`);
+    assert.ok(start !== -1, `${API} exports a helper named ${name}`);
+    const end = source.indexOf('\nexport ', start + 1);
+    return source.slice(start, end === -1 ? source.length : end);
+}
+
+function checkApiHelperPaths(mounted) {
+    const source = read(API);
+    for (const name of API_HELPERS) {
+        const paths = matchAll(helperBody(source, name), /apiCall\(\s*[`']([^`']+)[`']/g);
+        check(paths.length > 0, `${name} in ${API} calls apiCall with at least one path literal`);
+        for (const called of paths) {
+            check(called.startsWith(mounted),
+                `${name} calls ${called}, which is under the ${mounted} the server mounts the route at`);
+        }
+    }
+}
+
 function checkNoHardcodedBudget(relPaths) {
     for (const relPath of relPaths) {
         check(!read(relPath).includes('20000'),
@@ -290,10 +316,10 @@ async function main() {
     await checkEmptyListsWriteNoKey();
     await checkTurnOff();
 
-    checkFilesExist([APPLY_SETTINGS, ROUTE]);
-    checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE]);
+    checkFilesExist([APPLY_SETTINGS, ROUTE, PAGE]);
+    checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE, PAGE]);
     checkChannelNames();
-    mountPath();
+    checkApiHelperPaths(mountPath());
 }
 
 function cleanup() {
