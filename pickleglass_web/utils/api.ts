@@ -765,8 +765,6 @@ export type RepoContextSaveResult =
   | { ok: true; refreshed: boolean; status: RepoContextStatus }
   | { ok: false; reason: string }
 
-// No Firebase branch, following getPreContext below: a repo root is machine-scoped, so there is no
-// per-account copy of it to sync.
 export const getRepoContext = async (): Promise<RepoContextStatus> => {
   const response = await apiCall('/api/repo-context', { method: 'GET' });
   if (!response.ok) throw new Error('Failed to fetch repo context');

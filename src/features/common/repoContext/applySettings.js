@@ -31,7 +31,7 @@ const { buildRepoPack, matchesSubpath } = require('./repoPack');
  */
 const LIST_FIELDS = ['subpaths', 'includePaths'];
 
-/** `undefined` and `null` both read as absent, so a field the GUI cleared is not a type error. */
+/** A field the GUI cleared arrives as either, and neither is a type error. */
 function present(value) {
     return value !== undefined && value !== null;
 }

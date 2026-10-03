@@ -14,9 +14,8 @@ import {
 // the edges. Converting on every keystroke would eat the blank line the user is typing into.
 type Draft = { root: string; subpaths: string; includePaths: string }
 
-// The four states of the loaded panel. They are derived in one place so their precedence is visible
-// and no two can be shown at once: `withheld` in particular is a failed refresh, not an empty
-// setting, and they want different wording.
+// `withheld` is a pack built from a root the user has since changed, which Ask refuses to serve. It
+// reads as "nothing loaded" in an answer, so the page has to say something different about it.
 type PanelKind = 'unset' | 'loaded' | 'withheld' | 'idle'
 
 const toLines = (list: string[]) => list.join('\n')
@@ -208,8 +207,6 @@ export default function RepoContextPage() {
                   <p className="text-sm font-medium text-red-900 dark:text-red-200">
                     Nothing was saved. The settings are unchanged.
                   </p>
-                  {/* Verbatim and untruncated: this string is the only thing naming which path was
-                      wrong, and the server is the only thing that knows. */}
                   <p className="mt-1 text-sm text-red-800 dark:text-red-300 whitespace-pre-wrap break-words font-mono">
                     {result.reason}
                   </p>

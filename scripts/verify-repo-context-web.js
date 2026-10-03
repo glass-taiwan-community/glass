@@ -66,7 +66,6 @@ function run(file, args) {
     execFileSync(file, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-/** Only get/set/delete, the three methods applySettings is allowed to use. */
 function fakeStore(seed = {}) {
     const map = new Map(Object.entries(seed));
     const store = {
@@ -110,11 +109,6 @@ function gitRepo(files, tracked) {
     return dir;
 }
 
-/**
- * Seeds a store, snapshots it, applies the payload, and asserts both the refusal and that the store
- * came out unchanged. Routing every refusal case through here is what makes "a refused payload
- * never writes" structural rather than something each case has to remember.
- */
 async function checkRefusal(label, payload, expectations) {
     const { store, map } = fakeStore({ [UNRELATED_KEY]: UNRELATED_VALUE });
     const before = snapshot(map);
@@ -133,7 +127,6 @@ async function checkRefusal(label, payload, expectations) {
 async function checkPayloadShapeRefusals() {
     await checkRefusal('a string payload where an object belongs', 'root=/tmp', ['string']);
     await checkRefusal('a null payload', null, ['null']);
-    // typeof [] is 'object', so this one is not covered by the string and null cases above.
     await checkRefusal('an array payload', ['/tmp'], ['an array']);
     await checkRefusal('a non-string root', { root: 42 }, [KEYS.root, 'number']);
     await checkRefusal('a payload with no root at all', { subpaths: ['src'] },
@@ -211,7 +204,6 @@ async function checkSelectionRefusals() {
         { root: repo, includePaths: ['secrets/missing.env'] }, ['secrets/missing.env']);
 }
 
-/** A tracked tree plus one untracked file, which is what includePaths exists to pull back in. */
 function persistenceRepo() {
     const files = { 'lib/a.js': 'a\n', 'src/b.js': 'b\n', 'extra/opt.txt': 'opt\n' };
     return gitRepo(files, ['lib/a.js', 'src/b.js']);
@@ -356,15 +348,37 @@ async function checkRouteStatusCodes() {
     }
 }
 
+/**
+ * A source check, and deliberately the only one of its kind here. The `save-repo-context` case body
+ * cannot be executed by anything -- src/index.js requires electron at module load -- yet the whole
+ * premise of the page is that saving takes effect NOW rather than at the next launch. Dropping the
+ * refresh() call leaves every other assertion in this file green and the feature broken in exactly
+ * the way it keeps breaking, so the one property that cannot be reached by running code is asserted
+ * against the text instead of left unchecked.
+ */
+function checkSaveCaseRefreshes() {
+    const source = read(MAIN);
+    const start = source.indexOf("case 'save-repo-context': {");
+    check(start !== -1, `${MAIN} has a braced save-repo-context case`);
+    const body = source.slice(start, source.indexOf('\n                case ', start + 1) === -1
+        ? source.indexOf('default:', start)
+        : source.indexOf('\n                case ', start + 1));
+
+    check(/await\s+repoContextService\.refresh\(\)/.test(body),
+        'the save-repo-context case awaits repoContextService.refresh(), which is the only reason a'
+        + ' saved setting takes effect before the next launch');
+    check(/await\s+applySettings\(/.test(body),
+        'the save-repo-context case awaits applySettings, so a refusal cannot be a pending promise'
+        + ' read as a truthy ok');
+    check(body.includes('DEFAULT_POLICY.budgetTokens'),
+        'the save-repo-context case reports the budget from DEFAULT_POLICY rather than a second copy'
+        + ' of the number');
+}
+
 function matchAll(source, pattern) {
     return [...new Set([...source.matchAll(pattern)].map(match => match[1]))];
 }
 
-/**
- * The route and the switch are joined only by two string literals. Both sides are read out of the
- * source here, so renaming one without the other fails this check instead of becoming an HTTP 500
- * the first time someone opens the page.
- */
 function checkChannelNames() {
     const channels = matchAll(read(ROUTE), /ipcRequest\(\s*req\s*,\s*'([^']+)'/g);
     const labels = matchAll(read(MAIN), /case\s+'([^']+)'\s*:/g);
@@ -442,6 +456,7 @@ async function main() {
 
     checkFilesExist([APPLY_SETTINGS, ROUTE, PAGE]);
     checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE, PAGE]);
+    checkSaveCaseRefreshes();
     checkChannelNames();
     checkApiHelperPaths(mountPath());
 }

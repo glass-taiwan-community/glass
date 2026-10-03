@@ -504,12 +504,9 @@ function setupWebDataHandlers() {
                     break;
 
                 // REPO CONTEXT
-                // Braced, unlike most cases above: the existing ones declare bare consts that
-                // share the whole switch block's scope, so an unbraced case reusing a name here
-                // would be a SyntaxError rather than a lint warning.
+                // Braced because the cases above declare bare consts into the whole switch block's
+                // scope, so a name reused here would be a SyntaxError 170 lines away from its cause.
                 case 'get-repo-context': {
-                    // budgetTokens travels with the status so the page can render estTokens
-                    // against the real budget instead of a second copy of the number.
                     result = { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens };
                     break;
                 }
