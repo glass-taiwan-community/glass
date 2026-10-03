@@ -115,7 +115,8 @@ async function runStatus(args) {
     const root = settings[KEYS.root];
     if (typeof root === 'string' && root) console.log(`repo     ${root}`);
     else if (root === undefined) console.log('repo     (not set)');
-    else console.log(`repo     (not set) a value is stored but it is not a path: ${JSON.stringify(root)}`);
+    else console.log(`repo     unusable: ${JSON.stringify(root)} is stored, which is not a path, so the`
+        + ' app builds no pack');
 
     reportList('subpaths', settings[KEYS.subpaths]);
     reportList('include', settings[KEYS.includePaths]);

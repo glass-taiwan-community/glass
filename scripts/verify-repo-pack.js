@@ -616,6 +616,12 @@ async function checkCli() {
         `set stored the subpath list it was given (${JSON.stringify(parsed[KEYS.subpaths])})`);
     check(!fs.existsSync(path.join(home, nodeSideRel)),
         'the settings file electron-store resolves to under plain node was never created');
+    // Measured: requiring repoContextService creates this directory and no file, because conf's
+    // store getter calls _ensureDirectory on ENOENT. So the file check above cannot see the import
+    // trap this CLI exists for, and the directory check is what catches it.
+    check(!fs.existsSync(path.join(home, path.dirname(nodeSideRel))),
+        'electron-store was never even constructed, let alone written: the directory a Store makes'
+        + ' at import is absent, which is what catches a future edit requiring repoContextService');
 
     const relative = cliHome(CLI_SEED);
     const spelled = path.relative(WORKTREE_ROOT, fixture);
