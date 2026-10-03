@@ -20,7 +20,11 @@ const execFile = util.promisify(require('child_process').execFile);
 const PACK_MODULE = '../src/features/common/repoContext/repoPack';
 const SERVICE_MODULE = '../src/features/common/repoContext/repoContextService';
 const SETTINGS_MODULE = '../src/features/settings/settingsService';
+const CONFIG_MODULE = '../src/features/common/repoContext/config';
 const { buildRepoPack, DEFAULT_POLICY } = require(PACK_MODULE);
+const { KEYS, appSettingsPath } = require(CONFIG_MODULE);
+
+const CLI = path.join(__dirname, 'repo-context.js');
 
 // Not hardcoded, for two reasons. This fork is public, so a path naming a specific take-home
 // would publish which company's exercise it was. And a hardcoded absolute path makes these
@@ -39,6 +43,7 @@ const MEASURED_BYTES_PER_TOKEN = 2.307;
 const overBudget = pack => pack.omitted.filter(o => o.reason === 'over-budget').map(o => o.path);
 
 let fixture = null;
+const cliHomes = [];
 
 function check(ok, message) {
     assert.ok(ok, message);
@@ -499,18 +504,275 @@ async function checkServiceRootHandling() {
     }
 }
 
+/** Synthetic, never a copy of the real document, for the same reason the fixture is not in the tree. */
+const CLI_SEED = {
+    users: { 'default-user': { displayName: 'Local', onboarded: true } },
+    keybinds: { toggleVisibility: 'Cmd+\\', nextStep: 'Cmd+Enter' },
+    contentProtection: true,
+};
+
+/** APPDATA and XDG_CONFIG_HOME move too, or these assertions would only ever relocate on darwin. */
+function cliEnv(home) {
+    return {
+        ...process.env,
+        HOME: home,
+        APPDATA: path.join(home, 'AppData', 'Roaming'),
+        XDG_CONFIG_HOME: path.join(home, '.config'),
+    };
+}
+
+/** Works because os.homedir() re-reads process.env.HOME on every call, measured on node v18.20.2. */
+function settingsPathUnder(home) {
+    const saved = ['HOME', 'APPDATA', 'XDG_CONFIG_HOME'].map(key => [key, process.env[key]]);
+    Object.assign(process.env, cliEnv(home));
+    try {
+        return appSettingsPath();
+    } finally {
+        for (const [key, value] of saved) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+}
+
+function cliHome(seed) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-repo-context-'));
+    cliHomes.push(home);
+    if (seed !== null) {
+        const file = settingsPathUnder(home);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, typeof seed === 'string' ? seed : JSON.stringify(seed, null, '\t'));
+    }
+    return home;
+}
+
+async function runCli(home, args) {
+    try {
+        const { stdout, stderr } = await execFile('node', [CLI, ...args],
+            { env: cliEnv(home), cwd: WORKTREE_ROOT, maxBuffer: 8 * 1024 * 1024 });
+        return { code: 0, stdout, stderr };
+    } catch (err) {
+        return { code: err.code, stdout: err.stdout || '', stderr: err.stderr || '' };
+    }
+}
+
+async function measureStorePaths(home) {
+    const code = "const S = require('electron-store');"
+        + "console.log(new S({ name: 'pickle-glass-settings' }).path);"
+        + "console.log(require('./src/features/common/repoContext/config').appSettingsPath());";
+    const { stdout } = await execFile('node', ['-e', code], { env: cliEnv(home), cwd: WORKTREE_ROOT });
+    const [nodeSide, appSide] = stdout.trim().split('\n');
+    return { nodeSide, appSide };
+}
+
+function packedCount(stdout) {
+    const matched = /\npacked {3}([\d,]+) files?,/.exec(stdout);
+    return matched ? Number(matched[1].replace(/,/g, '')) : null;
+}
+
+function statOf(file) {
+    if (!fs.existsSync(file)) return 'absent';
+    const stat = fs.statSync(file);
+    return `${stat.size} B at ${stat.mtimeMs}`;
+}
+
+/**
+ * Every run happens in a child process under a fresh temp HOME, because proving the CLI writes the
+ * app's settings file needs appSettingsPath to resolve somewhere other than the user's own. The real
+ * file is then never touched, which the last assertion checks.
+ */
+async function checkCli() {
+    const realFile = appSettingsPath();
+    const realBefore = statOf(realFile);
+
+    const probeHome = cliHome(null);
+    const measured = await measureStorePaths(probeHome);
+    check(measured.nodeSide !== measured.appSide
+        && measured.nodeSide.startsWith(probeHome) && measured.appSide.startsWith(probeHome),
+        'under one HOME, electron-store resolves to a different settings file than the app reads,'
+        + ' which is the whole reason this CLI edits the file instead of requiring the library');
+    check(measured.nodeSide.includes(`${path.sep}Library${path.sep}Preferences${path.sep}`)
+        || measured.nodeSide.includes(`${path.sep}.config${path.sep}`)
+        || measured.nodeSide.includes(`${path.sep}AppData${path.sep}`),
+        `the path electron-store writes under plain node is the one the app never reads`
+        + ` (${path.relative(probeHome, measured.nodeSide)})`);
+    check(settingsPathUnder(probeHome) === measured.appSide,
+        'the harness and the child agree on the app-side path, so relocating HOME relocates both');
+
+    // Joined onto each fresh HOME below, so the home under assertion is never probed itself.
+    const nodeSideRel = path.relative(probeHome, measured.nodeSide);
+
+    const home = cliHome(CLI_SEED);
+    const file = settingsPathUnder(home);
+    const seeded = fs.readFileSync(file);
+
+    const set = await runCli(home, ['set', fixture, 'sub']);
+    check(set.code === 0, `set on a real repo with a matching subpath exits 0${set.code ? `: ${set.stderr}` : ''}`);
+    const written = fs.readFileSync(file, 'utf8');
+    const parsed = JSON.parse(written);
+    check(parsed[KEYS.root] === fixture,
+        'set stored the configured root in the file the running app reads');
+    check(util.isDeepStrictEqual(parsed[KEYS.subpaths], ['sub']),
+        `set stored the subpath list it was given (${JSON.stringify(parsed[KEYS.subpaths])})`);
+    check(!fs.existsSync(path.join(home, nodeSideRel)),
+        'the settings file electron-store resolves to under plain node was never created');
+
+    const relative = cliHome(CLI_SEED);
+    const spelled = path.relative(WORKTREE_ROOT, fixture);
+    const viaRelative = await runCli(relative, ['set', spelled]);
+    const storedRoot = JSON.parse(fs.readFileSync(settingsPathUnder(relative), 'utf8'))[KEYS.root];
+    check(viaRelative.code === 0 && storedRoot === fixture && path.isAbsolute(storedRoot),
+        `a relative repo path is resolved before it is stored (${spelled} stored as an absolute`
+        + ' path), because promptBlock matches the stored root by string equality');
+
+    check(util.isDeepStrictEqual(parsed.users, CLI_SEED.users)
+        && util.isDeepStrictEqual(parsed.keybinds, CLI_SEED.keybinds),
+        'a nested object and a nested keybind map survive a set with their values intact');
+    check(parsed.contentProtection === CLI_SEED.contentProtection,
+        'an unrelated scalar key survives a set with its value intact');
+
+    check(written.includes('\n\t') && !written.endsWith('\n'),
+        'the written file keeps the tab indentation and the absent trailing newline the app writes');
+    check(JSON.stringify(parsed, null, '\t') === written,
+        "the written bytes are exactly what the app's own serializer would produce for that document");
+
+    const off = await runCli(home, ['off']);
+    check(off.code === 0, 'off exits 0 when keys were set');
+    const afterOff = JSON.parse(fs.readFileSync(file, 'utf8'));
+    check(util.isDeepStrictEqual(afterOff.users, CLI_SEED.users)
+        && util.isDeepStrictEqual(afterOff.keybinds, CLI_SEED.keybinds)
+        && afterOff.contentProtection === CLI_SEED.contentProtection,
+        'the same nested objects and unrelated scalar survive an off with their values intact');
+    check(Object.values(KEYS).every(key => afterOff[key] === undefined),
+        `off removed all ${Object.values(KEYS).length} repo-context keys and nothing else`);
+
+    const offAgain = await runCli(home, ['off']);
+    const afterSecond = fs.readFileSync(file);
+    check(offAgain.code === 0 && afterSecond.equals(Buffer.from(JSON.stringify(afterOff, null, '\t'))),
+        'a second off exits 0 and leaves the file byte-identical, so running it twice is'
+        + ' indistinguishable from running it once');
+    check(offAgain.stdout.includes('nothing was set'),
+        'the second off says nothing was set rather than reporting a removal it did not make');
+
+    const noFile = cliHome(null);
+    const offNoFile = await runCli(noFile, ['off']);
+    check(offNoFile.code === 0 && !fs.existsSync(settingsPathUnder(noFile)),
+        'off with no settings file at all exits 0, does not crash, and writes no file');
+
+    const refusals = [
+        {
+            args: ['set', '/no/such/path'],
+            says: /does not exist/,
+            label: 'a repo path that does not exist is named as missing rather than as lacking a .git entry',
+        },
+        {
+            args: ['set', path.join(fixture, 'no-git-here')],
+            says: /has no \.git entry/,
+            label: 'a directory with no .git is refused',
+        },
+        {
+            args: ['set', fixture, 'sub', 'no-such-dir'],
+            says: /match no tracked file[\s\S]*no-such-dir|no-such-dir[\s\S]*match no tracked file/,
+            label: 'one unmatched subpath alongside one that matches is refused, and the unmatched spelling is named',
+        },
+    ];
+    for (const refusal of refusals) {
+        const where = cliHome(CLI_SEED);
+        const target = settingsPathUnder(where);
+        const bytes = fs.readFileSync(target);
+        const result = await runCli(where, refusal.args);
+        check(result.code !== 0 && refusal.says.test(result.stderr + result.stdout)
+            && fs.readFileSync(target).equals(bytes),
+            `${refusal.label}, and the settings file is left byte-identical`);
+    }
+
+    const malformed = '{\n\t"users": {\n\t\t"a": 1\n\t},\n\toops not json';
+    for (const args of [['set', fixture], ['off'], ['status']]) {
+        const where = cliHome(malformed);
+        const target = settingsPathUnder(where);
+        const result = await runCli(where, args);
+        check(result.code !== 0 && fs.readFileSync(target, 'utf8') === malformed,
+            `${args[0]} refuses a settings file that exists but holds malformed JSON, rather than`
+            + ' clobbering the keybinds and the users object it cannot parse');
+    }
+
+    const stale = cliHome({ ...CLI_SEED, [KEYS.root]: '/old/repo', [KEYS.subpaths]: ['stale/dir'] });
+    const staleFile = settingsPathUnder(stale);
+    const wholeRepo = await runCli(stale, ['set', fixture]);
+    const afterWhole = JSON.parse(fs.readFileSync(staleFile, 'utf8'));
+    check(wholeRepo.code === 0 && afterWhole[KEYS.root] === fixture
+        && afterWhole[KEYS.subpaths] === undefined,
+        'set with no subpaths means the whole repository, so it removes a stale subpath list'
+        + ' instead of leaving it to restrict the new root');
+
+    // hidden.yaml is in the fixture's .gitignore, so it can only reach a pack via the opt-in list.
+    const plain = await runCli(cliHome(CLI_SEED), ['set', fixture, 'sub']);
+    const withOptIn = await runCli(cliHome({ ...CLI_SEED, [KEYS.includePaths]: ['hidden.yaml'] }),
+        ['set', fixture, 'sub']);
+    check(packedCount(plain.stdout) !== null && withOptIn.code === 0
+        && packedCount(withOptIn.stdout) === packedCount(plain.stdout) + 1,
+        `the stored opt-in list reaches the build, so set reports the ${packedCount(withOptIn.stdout)}`
+        + ` files the app will pack rather than the ${packedCount(plain.stdout)} the subpath alone selects`);
+
+    const rejected = await runCli(cliHome({ ...CLI_SEED, [KEYS.includePaths]: 'hidden.yaml' }),
+        ['set', fixture, 'sub']);
+    check(rejected.code === 0 && /not an array of non-empty strings/.test(rejected.stdout),
+        'an opt-in list stored as a bare string is reported as unusable and the set still succeeds,'
+        + ' which is what the app does with it');
+
+    const over = cliHome(CLI_SEED);
+    const overflow = await runCli(over, ['set', WORKTREE_ROOT]);
+    check(overflow.code === 0
+        && JSON.parse(fs.readFileSync(settingsPathUnder(over), 'utf8'))[KEYS.root] === WORKTREE_ROOT,
+        'an overflowing selection is saved and exits 0, because overflow is a fact about the pack');
+    if (/\nstopped {2}/.test(overflow.stdout)) {
+        check(/\nstopped {2}\S+, [\d,]+ B, did not fit/.test(overflow.stdout)
+            && overflow.stdout.includes('size-repo-pack.js'),
+            'an overflowing set names the file that tripped the hard stop and points at the sizer'
+            + ' rather than reimplementing its suggestions');
+    } else {
+        check(overflow.stdout.includes('no file was dropped'),
+            'this worktree packs entirely within the budget, so the set says nothing was dropped');
+    }
+
+    const configured = cliHome({ ...CLI_SEED, [KEYS.root]: fixture, [KEYS.subpaths]: ['sub', 'sublime'] });
+    const status = await runCli(configured, ['status']);
+    check(status.code === 0 && status.stdout.includes(settingsPathUnder(configured))
+        && status.stdout.includes(fixture)
+        && status.stdout.includes('sub') && status.stdout.includes('sublime'),
+        'status names the settings file it read, the configured root, and every configured subpath');
+    check(status.stdout.includes('[RepoContext] packed') && /no file answers this/.test(status.stdout),
+        'status states that no file can say whether a pack is loaded, and names the'
+        + ' [RepoContext] packed log line as the only live signal');
+
+    const empty = await runCli(cliHome(null), ['status']);
+    check(empty.code === 0 && /\(not set\)/.test(empty.stdout) && /\(none\)/.test(empty.stdout),
+        'status with no settings file exits 0 and prints (not set) and (none) rather than blanks');
+
+    const usage = await runCli(cliHome(CLI_SEED), []);
+    const unknown = await runCli(cliHome(CLI_SEED), ['nope']);
+    check(usage.code === 1 && unknown.code === 1
+        && ['status', 'set', 'off'].every(name => usage.stderr.includes(name)),
+        'no arguments and an unknown command both exit 1 and print the usage for every command');
+
+    check(statOf(realFile) === realBefore,
+        `the user's own settings file was never touched: ${realBefore} before and after`);
+}
+
 async function main() {
     await checkTargetRepo();
     fixture = await buildFixture();
     await checkFixture();
     await checkGlassSubpath();
     await checkSizer();
+    await checkCli();
     checkServiceSentinel();
     await checkServiceRootHandling();
 }
 
 function cleanup() {
     if (fixture) fs.rmSync(fixture, { recursive: true, force: true });
+    for (const home of cliHomes) fs.rmSync(home, { recursive: true, force: true });
 }
 
 main()
