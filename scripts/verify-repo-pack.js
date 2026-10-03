@@ -19,6 +19,7 @@ const execFile = util.promisify(require('child_process').execFile);
 
 const PACK_MODULE = '../src/features/common/repoContext/repoPack';
 const SERVICE_MODULE = '../src/features/common/repoContext/repoContextService';
+const APPLY_MODULE = '../src/features/common/repoContext/applySettings';
 const SETTINGS_MODULE = '../src/features/settings/settingsService';
 const CONFIG_MODULE = '../src/features/common/repoContext/config';
 const { buildRepoPack, DEFAULT_POLICY } = require(PACK_MODULE);
@@ -414,33 +415,45 @@ function checkServiceSentinel() {
 }
 
 /**
+ * Loads a repoContextService with `storeClass` standing in for electron-store, which is the only
+ * way to reach the service's invariants: they are driven by what the settings file says, and the
+ * real one is the user's.
+ *
+ * The service is loaded fresh each time, because `lastGood` and the in-flight bookkeeping are
+ * module state and a group inheriting another group's installed pack would assert against it by
+ * accident.
+ */
+async function withService(storeClass, body) {
+    const storeId = require.resolve('electron-store');
+    const serviceId = require.resolve(SERVICE_MODULE);
+    const realStore = require.cache[storeId];
+
+    require.cache[storeId] = { id: storeId, filename: storeId, loaded: true, exports: storeClass };
+    delete require.cache[serviceId];
+    try {
+        return await body(require(SERVICE_MODULE));
+    } finally {
+        if (realStore) require.cache[storeId] = realStore;
+        else delete require.cache[storeId];
+        delete require.cache[serviceId];
+    }
+}
+
+/**
  * The service's hardest invariants are root tagging and single-flight, and neither is reachable
  * through the real settings file.
  */
 async function checkServiceRootHandling() {
-    const storeId = require.resolve('electron-store');
-    const serviceId = require.resolve(SERVICE_MODULE);
-    const realStore = require.cache[storeId];
     let configured = null;
     let configuredSubpaths = [];
 
-    require.cache[storeId] = {
-        id: storeId,
-        filename: storeId,
-        loaded: true,
-        exports: class {
-            get(key) {
-                if (key === 'repoContextRootPath') return configured;
-                if (key === 'repoContextSubpaths') return configuredSubpaths;
-                return undefined;
-            }
-        },
-    };
-    delete require.cache[serviceId];
-
-    try {
-        const service = require(SERVICE_MODULE);
-
+    await withService(class {
+        get(key) {
+            if (key === 'repoContextRootPath') return configured;
+            if (key === 'repoContextSubpaths') return configuredSubpaths;
+            return undefined;
+        }
+    }, async service => {
         configured = fixture;
         check(await service.refresh() === true, 'refresh() installs a pack for the configured root');
         check(service.promptBlock().includes(`=== repo: ${path.basename(fixture)} @`),
@@ -497,11 +510,100 @@ async function checkServiceRootHandling() {
             check(!coerced.includes('=== restricted to:') && coerced.includes('a.yaml'),
                 `a malformed repoContextSubpaths ${label} reads as not configured, so the whole repository packs`);
         }
-    } finally {
-        if (realStore) require.cache[storeId] = realStore;
-        else delete require.cache[storeId];
-        delete require.cache[serviceId];
-    }
+    });
+}
+
+/**
+ * A store save() can actually write, which the get-only mock above cannot be. `afterSet` is how the
+ * race at install time is driven: another writer -- the CLI, a hand edit, a second save -- landing
+ * between applySettings persisting the root and the pack being installed.
+ */
+function mapStore(seed = {}) {
+    const map = new Map(Object.entries(seed));
+    const hooks = { afterSet: null };
+    return {
+        map,
+        hooks,
+        MapStore: class {
+            get(key) { return map.get(key); }
+            set(key, value) {
+                map.set(key, value);
+                if (hooks.afterSet) hooks.afterSet(key, map);
+            }
+            delete(key) { map.delete(key); }
+        },
+    };
+}
+
+/**
+ * save() is the whole write path for these settings, so the property the page depends on -- that a
+ * saved setting is being served before the answer comes back rather than at the next launch -- is
+ * asserted by running it. It used to be a regex over src/index.js, which could only ever prove that
+ * a call was written down.
+ */
+async function checkServiceSave() {
+    const { MapStore, map } = mapStore({ contentProtection: true });
+    await withService(MapStore, async service => {
+        const saved = await service.save({ root: fixture, subpaths: ['sub'] });
+        check(saved.ok === true && saved.refreshed === true,
+            'save() answers { ok: true, refreshed: true }, the shape the page renders');
+        check(map.get(KEYS.root) === fixture && util.isDeepStrictEqual(map.get(KEYS.subpaths), ['sub']),
+            "save() persists through the service's own store, so src/index.js needs no Store of its own");
+        check(map.get('contentProtection') === true,
+            'save() left the unrelated keys in that settings file alone');
+        check(service.promptBlock().includes('=== restricted to: sub ==='),
+            'the saved selection is being served immediately, which is the only reason this page exists');
+        check(service.status().loaded === true && service.status().root === fixture,
+            'status() reports the save as loaded for the saved root');
+
+        const refused = await service.save({ root: path.join(fixture, 'no-such-dir') });
+        check(refused.ok === false && /does not exist/.test(refused.reason),
+            "save() returns applySettings' refusal verbatim rather than throwing");
+
+        // `sub` exists and has no .git, so buildRepoPack throws and the refusal comes from a failed
+        // build rather than a failed stat. Stale beats failed on this path too.
+        const unpackable = await service.save({ root: path.join(fixture, 'sub') });
+        check(unpackable.ok === false && /no \.git entry/.test(unpackable.reason),
+            'save() refuses a root that cannot be packed, with buildRepoPack\'s own reason');
+        check(map.get(KEYS.root) === fixture
+            && service.promptBlock().includes('=== restricted to: sub ==='),
+            'neither refused save moved the stored root or the pack being served');
+
+        const off = await service.save({ root: '' });
+        check(off.ok === true && off.refreshed === false,
+            'save() with an empty root turns the pack off and reports refreshed:false, so the page'
+            + ' never claims a pack was installed');
+        check(map.get(KEYS.root) === undefined && service.promptBlock() === service.SENTINEL,
+            'turning it off clears the stored root and returns promptBlock to the sentinel');
+    });
+}
+
+/**
+ * applySettings takes a store and never constructs one, because electron-store resolves to
+ * ~/Library/Preferences/electron-store-nodejs/ under plain node -- a file the app never reads -- as
+ * a side effect of merely being imported. A file-existence check misses this: conf's store getter
+ * calls _ensureDirectory on ENOENT, so importing creates the DIRECTORY and no file. So the
+ * directory is what gets asserted, against a module that does construct one as the control.
+ */
+async function checkApplySettingsLoadsClean() {
+    // Resolved rather than spelled out, so moving either module breaks this loudly instead of
+    // leaving a child that requires nothing and an assertion that passes.
+    const inRepo = id => path.relative(WORKTREE_ROOT, require.resolve(id));
+    const probe = cliHome(null);
+    const nodeSideDir = path.relative(probe, path.dirname((await measureStorePaths(probe)).nodeSide));
+
+    const loadIn = async (home, id) => {
+        await execFile('node', ['-e', `require('./${inRepo(id)}')`],
+            { env: cliEnv(home), cwd: WORKTREE_ROOT });
+        return fs.existsSync(path.join(home, nodeSideDir));
+    };
+
+    check(await loadIn(cliHome(null), SERVICE_MODULE),
+        `requiring ${inRepo(SERVICE_MODULE)} under plain node creates ${nodeSideDir}, which is what`
+        + ' makes the assertion below worth making');
+    check(!await loadIn(cliHome(null), APPLY_MODULE),
+        `requiring ${inRepo(APPLY_MODULE)} creates no ${nodeSideDir}, so a verifier can load the real`
+        + ' validation rules without writing a settings file at the wrong path');
 }
 
 /** Synthetic, never a copy of the real document, for the same reason the fixture is not in the tree. */
@@ -774,6 +876,8 @@ async function main() {
     await checkCli();
     checkServiceSentinel();
     await checkServiceRootHandling();
+    await checkServiceSave();
+    await checkApplySettingsLoadsClean();
 }
 
 function cleanup() {

@@ -9,6 +9,7 @@
 
 const Store = require('electron-store');
 const { buildRepoPack } = require('./repoPack');
+const { applySettings } = require('./applySettings');
 const { KEYS, normalizeList } = require('./config');
 
 const store = new Store({ name: 'pickle-glass-settings' });
@@ -127,6 +128,25 @@ async function build(root) {
 }
 
 /**
+ * The one way to write these settings. The store stays private to this module rather than being
+ * exported, because a caller holding it could write any key in the whole settings file to reach the
+ * three this feature owns, and could persist a root without the build that proves it packs.
+ * src/index.js constructed a third Store over that same file for want of this function.
+ *
+ * `refreshed: false` on an `ok: true` means nothing was installed and Ask is still serving the
+ * sentinel, which is what the page renders. A setting that does nothing until the next launch is
+ * the failure this page exists to end, so the pack is installed before the answer is sent.
+ *
+ * @param {unknown} payload `{ root, subpaths, includePaths }`
+ * @returns {Promise<{ok: true, refreshed: boolean}|{ok: false, reason: string}>}
+ */
+async function save(payload) {
+    const applied = await applySettings(store, payload);
+    if (!applied.ok) return applied;
+    return { ok: true, refreshed: await refresh() };
+}
+
+/**
  * What is configured and what is actually being served, for the Ask window's status line, the CLI
  * and the settings page. Synchronous and never throws, same contract as promptBlock, because the
  * status line renders on the same path an Ask does.
@@ -164,4 +184,4 @@ function status() {
     }
 }
 
-module.exports = { promptBlock, refresh, status, SENTINEL };
+module.exports = { promptBlock, refresh, save, status, SENTINEL };

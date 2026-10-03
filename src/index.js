@@ -344,10 +344,7 @@ function setupWebDataHandlers() {
     const presetRepository = require('./features/common/repositories/preset');
     const snippetRepository = require('./features/common/repositories/snippet');
     const preContextRepository = require('./features/common/repositories/precontext');
-    const Store = require('electron-store');
-    const { applySettings } = require('./features/common/repoContext/applySettings');
     const { DEFAULT_POLICY } = require('./features/common/repoContext/repoPack');
-    const settingsStore = new Store({ name: 'pickle-glass-settings' });
 
     const handleRequest = async (channel, responseChannel, payload) => {
         let result;
@@ -511,18 +508,14 @@ function setupWebDataHandlers() {
                     break;
                 }
                 case 'save-repo-context': {
-                    const applied = await applySettings(settingsStore, payload);
-                    if (!applied.ok) {
-                        result = applied;
+                    const saved = await repoContextService.save(payload);
+                    if (!saved.ok) {
+                        result = saved;
                         break;
                     }
-                    // A setting that does nothing until the next launch is the failure this page
-                    // exists to end, so the pack is rebuilt now and `refreshed` is reported:
-                    // false means no pack was installed and Ask is still serving the sentinel.
-                    const refreshed = await repoContextService.refresh();
                     result = {
                         ok: true,
-                        refreshed,
+                        refreshed: saved.refreshed,
                         status: { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens },
                     };
                     break;

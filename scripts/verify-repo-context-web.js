@@ -39,6 +39,7 @@ const repoContextRoute = require('../pickleglass_web/backend_node/routes/repoCon
 const REPO_ROOT = path.join(__dirname, '..');
 
 const APPLY_SETTINGS = 'src/features/common/repoContext/applySettings.js';
+const SERVICE = 'src/features/common/repoContext/repoContextService.js';
 const ROUTE = 'pickleglass_web/backend_node/routes/repoContext.js';
 const BACKEND_INDEX = 'pickleglass_web/backend_node/index.js';
 const MAIN = 'src/index.js';
@@ -349,14 +350,13 @@ async function checkRouteStatusCodes() {
 }
 
 /**
- * A source check, and deliberately the only one of its kind here. The `save-repo-context` case body
- * cannot be executed by anything -- src/index.js requires electron at module load -- yet the whole
- * premise of the page is that saving takes effect NOW rather than at the next launch. Dropping the
- * refresh() call leaves every other assertion in this file green and the feature broken in exactly
- * the way it keeps breaking, so the one property that cannot be reached by running code is asserted
- * against the text instead of left unchecked.
+ * Source checks, and deliberately the only ones of their kind here. The `save-repo-context` case
+ * body cannot be executed by anything -- src/index.js requires electron at module load -- so the
+ * properties below are asserted against the text rather than left unchecked. That the saved setting
+ * then takes effect before the next launch is asserted by running the real code, in
+ * verify-repo-pack.js's checkServiceSave.
  */
-function checkSaveCaseRefreshes() {
+function checkSaveCaseDelegates() {
     const source = read(MAIN);
     const start = source.indexOf("case 'save-repo-context': {");
     check(start !== -1, `${MAIN} has a braced save-repo-context case`);
@@ -364,15 +364,39 @@ function checkSaveCaseRefreshes() {
         ? source.indexOf('default:', start)
         : source.indexOf('\n                case ', start + 1));
 
-    check(/await\s+repoContextService\.refresh\(\)/.test(body),
-        'the save-repo-context case awaits repoContextService.refresh(), which is the only reason a'
-        + ' saved setting takes effect before the next launch');
-    check(/await\s+applySettings\(/.test(body),
-        'the save-repo-context case awaits applySettings, so a refusal cannot be a pending promise'
-        + ' read as a truthy ok');
+    check(/await\s+repoContextService\.save\(/.test(body),
+        'the save-repo-context case awaits repoContextService.save, so a refusal cannot be a pending'
+        + ' promise read as a truthy ok, and the service owns both the validation and the install');
+    check(/refreshed:\s*saved\.refreshed/.test(body),
+        'the save-repo-context case passes the service\'s own refreshed flag to the page rather than'
+        + ' reporting a success the install never reached');
     check(body.includes('DEFAULT_POLICY.budgetTokens'),
         'the save-repo-context case reports the budget from DEFAULT_POLICY rather than a second copy'
         + ' of the number');
+}
+
+/**
+ * repoContextService.js already owns a Store over pickle-glass-settings.json and settingsService.js
+ * owns a second. src/index.js held a third, constructed only because the service exported no way to
+ * write, and three objects owning one file is one more than the file can be reasoned about with.
+ *
+ * The service is checked as the positive control, so a pattern that matches nothing anywhere cannot
+ * pass this group by accident.
+ */
+function checkMainConstructsNoStore() {
+    const main = read(MAIN);
+    const service = read(SERVICE);
+    const requiresStore = /require\(\s*'electron-store'\s*\)/;
+    const constructsStore = /new\s+Store\s*\(/;
+
+    check(requiresStore.test(service) && constructsStore.test(service),
+        `${SERVICE} is the module that requires electron-store and constructs the Store, which is`
+        + ' what makes the two assertions below non-vacuous');
+    check(!requiresStore.test(main), `${MAIN} requires electron-store nowhere`);
+    check(!constructsStore.test(main), `${MAIN} constructs no Store`);
+    check(!main.includes('repoContext/applySettings'),
+        `${MAIN} does not reach applySettings directly, so repoContextService.save is the only path`
+        + ' by which these settings are written');
 }
 
 function matchAll(source, pattern) {
@@ -454,9 +478,10 @@ async function main() {
 
     await checkRouteStatusCodes();
 
-    checkFilesExist([APPLY_SETTINGS, ROUTE, PAGE]);
+    checkFilesExist([APPLY_SETTINGS, SERVICE, ROUTE, PAGE]);
     checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE, PAGE]);
-    checkSaveCaseRefreshes();
+    checkSaveCaseDelegates();
+    checkMainConstructsNoStore();
     checkChannelNames();
     checkApiHelperPaths(mountPath());
 }
