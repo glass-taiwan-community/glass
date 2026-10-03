@@ -233,6 +233,15 @@ async function checkPersistence() {
     const second = await applySettings(store, payload);
     check(second.ok === true && snapshot(map) === after,
         'applying the same valid payload twice leaves byte-identical store contents');
+
+    check(first.pack && first.pack.root === repo && first.pack.files.length > 0
+        && typeof first.pack.text === 'string',
+        'an accepted payload returns the pack it built to validate the root, for the caller to'
+        + ' install rather than build a second time');
+    check(first.pack.files.some(file => file.path === 'extra/opt.txt')
+        && first.pack.files.every(file => file.path === 'extra/opt.txt' || file.path.startsWith('lib/')),
+        'the returned pack is the one built from this exact payload, both lists included, so'
+        + ' installing it is not installing some earlier selection');
 }
 
 async function checkEmptyListsWriteNoKey() {
@@ -256,7 +265,9 @@ async function checkTurnOff() {
     for (const [label, root] of [['an empty root', ''], ['a whitespace-only root', '   ']]) {
         const { store, map } = fakeStore(seeded);
         const result = await applySettings(store, { root });
-        check(result.ok === true, `${label} is accepted as "turn it off"`);
+        check(result.ok === true && result.pack === undefined,
+            `${label} is accepted as "turn it off" and returns no pack, so the caller installs`
+            + ' nothing and reports refreshed:false');
         check(Object.values(KEYS).every(key => !map.has(key)),
             `${label} deletes all three repo-context keys`);
         check(map.get(UNRELATED_KEY) === UNRELATED_VALUE,
@@ -352,9 +363,7 @@ async function checkRouteStatusCodes() {
 /**
  * Source checks, and deliberately the only ones of their kind here. The `save-repo-context` case
  * body cannot be executed by anything -- src/index.js requires electron at module load -- so the
- * properties below are asserted against the text rather than left unchecked. That the saved setting
- * then takes effect before the next launch is asserted by running the real code, in
- * verify-repo-pack.js's checkServiceSave.
+ * properties below are asserted against the text rather than left unchecked.
  */
 function checkSaveCaseDelegates() {
     const source = read(MAIN);
@@ -366,7 +375,7 @@ function checkSaveCaseDelegates() {
 
     check(/await\s+repoContextService\.save\(/.test(body),
         'the save-repo-context case awaits repoContextService.save, so a refusal cannot be a pending'
-        + ' promise read as a truthy ok, and the service owns both the validation and the install');
+        + ' promise read as a truthy ok');
     check(/refreshed:\s*saved\.refreshed/.test(body),
         'the save-repo-context case passes the service\'s own refreshed flag to the page rather than'
         + ' reporting a success the install never reached');
@@ -377,11 +386,8 @@ function checkSaveCaseDelegates() {
 
 /**
  * repoContextService.js already owns a Store over pickle-glass-settings.json and settingsService.js
- * owns a second. src/index.js held a third, constructed only because the service exported no way to
- * write, and three objects owning one file is one more than the file can be reasoned about with.
- *
- * The service is checked as the positive control, so a pattern that matches nothing anywhere cannot
- * pass this group by accident.
+ * owns a second, and three objects owning one file is one more than the file can be reasoned about
+ * with.
  */
 function checkMainConstructsNoStore() {
     const main = read(MAIN);
@@ -392,8 +398,9 @@ function checkMainConstructsNoStore() {
     check(requiresStore.test(service) && constructsStore.test(service),
         `${SERVICE} is the module that requires electron-store and constructs the Store, which is`
         + ' what makes the two assertions below non-vacuous');
-    check(!requiresStore.test(main), `${MAIN} requires electron-store nowhere`);
-    check(!constructsStore.test(main), `${MAIN} constructs no Store`);
+    check(!requiresStore.test(main) && !constructsStore.test(main),
+        `${MAIN} neither requires electron-store nor constructs a Store, so that settings file keeps`
+        + ' the two owners it already has');
     check(!main.includes('repoContext/applySettings'),
         `${MAIN} does not reach applySettings directly, so repoContextService.save is the only path`
         + ' by which these settings are written');

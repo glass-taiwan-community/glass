@@ -415,9 +415,8 @@ function checkServiceSentinel() {
 }
 
 /**
- * Loads a repoContextService with `storeClass` standing in for electron-store, which is the only
- * way to reach the service's invariants: they are driven by what the settings file says, and the
- * real one is the user's.
+ * Loads a repoContextService with `storeClass` standing in for electron-store, because what the
+ * settings file says is what drives the service's invariants and the real file is the user's.
  *
  * The service is loaded fresh each time, because `lastGood` and the in-flight bookkeeping are
  * module state and a group inheriting another group's installed pack would assert against it by
@@ -425,17 +424,48 @@ function checkServiceSentinel() {
  */
 async function withService(storeClass, body) {
     const storeId = require.resolve('electron-store');
-    const serviceId = require.resolve(SERVICE_MODULE);
     const realStore = require.cache[storeId];
+    // applySettings too, because the service reaches buildRepoPack through it as well, and a module
+    // holding a reference destructured before withBuildCounter patched it would go uncounted.
+    const reloaded = [SERVICE_MODULE, APPLY_MODULE].map(id => require.resolve(id));
 
     require.cache[storeId] = { id: storeId, filename: storeId, loaded: true, exports: storeClass };
-    delete require.cache[serviceId];
+    for (const id of reloaded) delete require.cache[id];
     try {
         return await body(require(SERVICE_MODULE));
     } finally {
         if (realStore) require.cache[storeId] = realStore;
         else delete require.cache[storeId];
-        delete require.cache[serviceId];
+        for (const id of reloaded) delete require.cache[id];
+    }
+}
+
+/**
+ * Counted rather than timed, because the build a save used to pay twice for sits well inside the
+ * variance of a loaded machine, so a timing assertion for it would be flaky by construction.
+ *
+ * `pauseNextBuild`, set to a promise, is what orders a race deterministically, instead of leaving an
+ * assertion to depend on which of two sub-50 ms builds happens to finish first.
+ */
+async function withBuildCounter(body) {
+    const packId = require.resolve(PACK_MODULE);
+    const real = require.cache[packId].exports;
+    const counter = { builds: 0, pauseNextBuild: null };
+
+    require.cache[packId].exports = {
+        ...real,
+        buildRepoPack: async (...args) => {
+            counter.builds += 1;
+            const paused = counter.pauseNextBuild;
+            counter.pauseNextBuild = null;
+            if (paused) await paused;
+            return real.buildRepoPack(...args);
+        },
+    };
+    try {
+        return await body(counter);
+    } finally {
+        require.cache[packId].exports = real;
     }
 }
 
@@ -513,11 +543,7 @@ async function checkServiceRootHandling() {
     });
 }
 
-/**
- * A store save() can actually write, which the get-only mock above cannot be. `afterSet` is how the
- * race at install time is driven: another writer -- the CLI, a hand edit, a second save -- landing
- * between applySettings persisting the root and the pack being installed.
- */
+/** A store save() can actually write, which the get-only mock above cannot be. */
 function mapStore(seed = {}) {
     const map = new Map(Object.entries(seed));
     const hooks = { afterSet: null };
@@ -535,12 +561,7 @@ function mapStore(seed = {}) {
     };
 }
 
-/**
- * save() is the whole write path for these settings, so the property the page depends on -- that a
- * saved setting is being served before the answer comes back rather than at the next launch -- is
- * asserted by running it. It used to be a regex over src/index.js, which could only ever prove that
- * a call was written down.
- */
+/** save() is the whole write path for these settings, so its properties are asserted by running it. */
 async function checkServiceSave() {
     const { MapStore, map } = mapStore({ contentProtection: true });
     await withService(MapStore, async service => {
@@ -552,9 +573,9 @@ async function checkServiceSave() {
         check(map.get('contentProtection') === true,
             'save() left the unrelated keys in that settings file alone');
         check(service.promptBlock().includes('=== restricted to: sub ==='),
-            'the saved selection is being served immediately, which is the only reason this page exists');
+            'the saved selection is being served before this save answers, not at the next launch');
         check(service.status().loaded === true && service.status().root === fixture,
-            'status() reports the save as loaded for the saved root');
+            'status() reports the save as loaded rather than withheld, which is the badge the page reads');
 
         const refused = await service.save({ root: path.join(fixture, 'no-such-dir') });
         check(refused.ok === false && /does not exist/.test(refused.reason),
@@ -578,12 +599,65 @@ async function checkServiceSave() {
     });
 }
 
+async function checkSaveInstallsTheBuiltPack() {
+    const { MapStore, map, hooks } = mapStore();
+    await withBuildCounter(counter => withService(MapStore, async service => {
+        const whole = await service.save({ root: fixture });
+        check(whole.refreshed === true && counter.builds === 1,
+            'a whole-repository save makes exactly one buildRepoPack call, not one to validate and'
+            + ` another to install; it made ${counter.builds}`);
+
+        counter.builds = 0;
+        const restricted = await service.save({ root: fixture, subpaths: ['sub'] });
+        check(restricted.refreshed === true && counter.builds === 1,
+            `a save with a subpath selection also builds once; it made ${counter.builds}`);
+        check(service.promptBlock().includes('=== restricted to: sub ==='),
+            'the pack that one build produced is the pack being served, so dropping the second build'
+            + ' dropped no work the answer depends on');
+
+        // applySettings writes the root last thing before returning, so overwriting it from the set
+        // hook puts the pack out of date in exactly the window between the build and the install.
+        // Another writer landing there is real, whether the CLI, a hand edit, or a second save.
+        counter.builds = 0;
+        hooks.afterSet = key => { if (key === KEYS.root) map.set(KEYS.root, WORKTREE_ROOT); };
+        const hijacked = await service.save({ root: fixture, subpaths: ['sub'] });
+        hooks.afterSet = null;
+        check(hijacked.ok === true && hijacked.refreshed === false,
+            'a pack handed to the install path for a root that is no longer configured is discarded'
+            + ' rather than installed, and the save reports refreshed:false instead of a success');
+        check(counter.builds === 1,
+            `that discard cost one build (${counter.builds}), not a rebuild to compensate`);
+        map.set(KEYS.root, fixture);
+        check(service.promptBlock().includes('=== restricted to: sub ==='),
+            'the discard left the previously installed pack intact, so stale still beats failed on'
+            + ' the install path');
+
+        // The install path must not disturb the single flight either. A build running when a save
+        // lands still owns the dedup entry, so the refresh after it joins rather than starting a
+        // second build of the same root.
+        counter.builds = 0;
+        let release;
+        counter.pauseNextBuild = new Promise(resolve => { release = resolve; });
+        const racing = service.refresh();
+        await service.save({ root: fixture, subpaths: ['sub'] });
+        check(service.refresh() === racing,
+            'a save installing its pack mid-flight leaves the in-flight build joinable, so'
+            + ' single-flight per root survives the install path');
+        release();
+        await racing;
+        check(counter.builds === 2,
+            `that whole sequence built twice, once per distinct request (${counter.builds}): the`
+            + ' install neither rebuilt nor orphaned the flight into a duplicate build');
+    }));
+}
+
 /**
- * applySettings takes a store and never constructs one, because electron-store resolves to
- * ~/Library/Preferences/electron-store-nodejs/ under plain node -- a file the app never reads -- as
- * a side effect of merely being imported. A file-existence check misses this: conf's store getter
- * calls _ensureDirectory on ENOENT, so importing creates the DIRECTORY and no file. So the
- * directory is what gets asserted, against a module that does construct one as the control.
+ * applySettings takes a store and never constructs one, because electron-store under plain node
+ * resolves to a settings file the app never reads, as a side effect of merely being imported.
+ *
+ * Asserted against the DIRECTORY rather than a file. conf's store getter calls `_ensureDirectory` on
+ * ENOENT, so importing a module that constructs a Store creates the directory and leaves no file for
+ * an existence check to find.
  */
 async function checkApplySettingsLoadsClean() {
     // Resolved rather than spelled out, so moving either module breaks this loudly instead of
@@ -877,6 +951,7 @@ async function main() {
     checkServiceSentinel();
     await checkServiceRootHandling();
     await checkServiceSave();
+    await checkSaveInstallsTheBuiltPack();
     await checkApplySettingsLoadsClean();
 }
 

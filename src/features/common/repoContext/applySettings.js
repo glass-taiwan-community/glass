@@ -51,7 +51,8 @@ function refuse(reason) {
  *
  * @param {SettingsStore} store
  * @param {unknown} payload `{ root, subpaths, includePaths }`, each field optional.
- * @returns {Promise<{ok: true}|{ok: false, reason: string}>}
+ * @returns {Promise<{ok: true, pack?: import('./repoPack').RepoPack}|{ok: false, reason: string}>}
+ *   `pack` is absent for the empty root that turns the repository context off.
  */
 async function applySettings(store, payload) {
     // Array.isArray is not redundant with the typeof test: `typeof [] === 'object'`, and an array
@@ -107,10 +108,9 @@ async function applySettings(store, payload) {
     }
     if (!rootStat.isDirectory()) return refuse(`${root} is not a directory`);
 
-    // Built BEFORE anything is persisted, which costs a second build when the caller then calls
-    // refresh(). Deliberate: a persisted root that cannot build leaves promptBlock serving the
-    // sentinel with nothing in the GUI to explain why, and that silent-off outcome is the exact
-    // failure this page exists to end. Paying for one extra build is the cheaper side of the trade.
+    // Built BEFORE anything is persisted, because a persisted root that cannot build leaves
+    // promptBlock serving the sentinel with nothing in the GUI to explain why, and that silent-off
+    // outcome is the exact failure this page exists to end.
     let pack;
     try {
         pack = await buildRepoPack(root, { subpaths: lists.subpaths, includePaths: lists.includePaths });
@@ -157,7 +157,7 @@ async function applySettings(store, payload) {
         if (lists[field].length) store.set(KEYS[field], lists[field]);
         else store.delete(KEYS[field]);
     }
-    return { ok: true };
+    return { ok: true, pack };
 }
 
 module.exports = { applySettings };
