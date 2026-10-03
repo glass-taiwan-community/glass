@@ -27,10 +27,14 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 const { execFileSync } = require('node:child_process');
+const express = require('express');
 
 const { applySettings } = require('../src/features/common/repoContext/applySettings');
 const { KEYS } = require('../src/features/common/repoContext/config');
+const { DEFAULT_POLICY } = require('../src/features/common/repoContext/repoPack');
+const repoContextRoute = require('../pickleglass_web/backend_node/routes/repoContext');
 
 const REPO_ROOT = path.join(__dirname, '..');
 
@@ -267,6 +271,91 @@ async function checkTurnOff() {
     }
 }
 
+/**
+ * The route over a real HTTP server, with a bridge that answers whatever the case is told to.
+ * src/index.js cannot be loaded under plain node, so this stops at the bridge rather than reaching
+ * the switch; what it buys is the part the page depends on and nothing else tests, namely that a
+ * refusal arrives as a 400 still carrying its reason while a failed request stays a 500. Collapse
+ * those two and saveRepoContext throws where it should have returned the reason, and the user is
+ * told "the save failed" instead of which subpath was wrong.
+ */
+function routeServer(answer) {
+    const bridge = new EventEmitter();
+    bridge.on('web-data-request', (channel, responseChannel, payload) => {
+        const reply = answer(channel, payload);
+        bridge.emit(responseChannel, reply);
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.bridge = bridge; next(); });
+    app.use('/api/repo-context', repoContextRoute);
+    return app;
+}
+
+function listen(app) {
+    return new Promise(resolve => {
+        const server = app.listen(0, '127.0.0.1', () => resolve(server));
+    });
+}
+
+async function post(server, body) {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/repo-context`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+async function checkRouteStatusCodes() {
+    const cases = [
+        {
+            label: 'a refusal from the case',
+            answer: () => ({ success: true, data: { ok: false, reason: 'these subpaths match no tracked file: src/nope' } }),
+            status: 400,
+            assertBody: body => body.ok === false && body.reason.includes('src/nope'),
+            detail: 'answers HTTP 400 and the reason survives the hop verbatim',
+        },
+        {
+            label: 'an accepted save',
+            answer: () => ({ success: true, data: { ok: true, refreshed: true, status: { files: 11 } } }),
+            status: 200,
+            assertBody: body => body.ok === true && body.refreshed === true && body.status.files === 11,
+            detail: 'answers HTTP 200 and the status comes back whole',
+        },
+        {
+            label: 'a request the main process failed',
+            answer: () => ({ success: false, error: 'the handler threw' }),
+            status: 500,
+            assertBody: body => typeof body.error === 'string' && body.ok === undefined,
+            detail: 'answers HTTP 500 with no ok field, so our defect cannot be read as the user\'s typo',
+        },
+    ];
+
+    for (const testCase of cases) {
+        const server = await listen(routeServer(testCase.answer));
+        try {
+            const response = await post(server, { root: '/tmp/anything' });
+            check(response.status === testCase.status && testCase.assertBody(response.body),
+                `${testCase.label} ${testCase.detail}`);
+        } finally {
+            server.close();
+        }
+    }
+
+    const server = await listen(routeServer(() => ({ success: true,
+        data: { root: null, loaded: false, budgetTokens: DEFAULT_POLICY.budgetTokens } })));
+    try {
+        const res = await fetch(`http://127.0.0.1:${server.address().port}/api/repo-context`);
+        const body = await res.json();
+        check(res.status === 200 && body.loaded === false && body.budgetTokens === DEFAULT_POLICY.budgetTokens,
+            'a GET answers HTTP 200 with the status object the page reads');
+    } finally {
+        server.close();
+    }
+}
+
 function matchAll(source, pattern) {
     return [...new Set([...source.matchAll(pattern)].map(match => match[1]))];
 }
@@ -348,6 +437,8 @@ async function main() {
     await checkPersistence();
     await checkEmptyListsWriteNoKey();
     await checkTurnOff();
+
+    await checkRouteStatusCodes();
 
     checkFilesExist([APPLY_SETTINGS, ROUTE, PAGE]);
     checkNoHardcodedBudget([APPLY_SETTINGS, ROUTE, PAGE]);
