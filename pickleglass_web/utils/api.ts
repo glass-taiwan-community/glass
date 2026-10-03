@@ -783,7 +783,9 @@ export const saveRepoContext = async (data: RepoContextSettings): Promise<RepoCo
   // user can act on.
   const body = await response.json().catch(() => null);
   if (body && body.ok === false) return body as RepoContextSaveResult;
-  if (!response.ok) throw new Error('Failed to save repo context');
+  // A 200 whose body did not parse is "some other reason" too, so it throws rather than handing
+  // back a null the declared return type says cannot happen.
+  if (!response.ok || !body) throw new Error('Failed to save repo context');
   return body as RepoContextSaveResult;
 };
 
