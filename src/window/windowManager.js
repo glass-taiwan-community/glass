@@ -13,9 +13,12 @@ const isLiquidGlassSupported = () => {
     if (process.platform !== 'darwin') {
         return false;
     }
+    // Opt-in only: the glass material makes text unreadable over busy backgrounds.
+    if (process.env.GLASS_LIQUID_GLASS !== '1') {
+        return false;
+    }
     const majorVersion = parseInt(os.release().split('.')[0], 10);
-    // return majorVersion >= 25; // macOS 26+ (Darwin 25+)
-    return majorVersion >= 26; // See you soon!
+    return majorVersion >= 25; // macOS 26+ (Darwin 25+)
 };
 let shouldUseLiquidGlass = isLiquidGlassSupported();
 if (shouldUseLiquidGlass) {
