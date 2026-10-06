@@ -1,5 +1,6 @@
 import { html, css, LitElement } from '../../ui/assets/lit-core-2.7.4.min.js';
 import { parser, parser_write, parser_end, default_renderer } from '../../ui/assets/smd.js';
+import { formatRepoStatus } from './repoStatusLine.js';
 
 export class AskView extends LitElement {
     static properties = {
@@ -22,6 +23,7 @@ export class AskView extends LitElement {
          * control that does nothing is worse than one that is not there.
          */
         isPinned: { type: Boolean },
+        repoStatus: { type: Object },
     };
 
     static styles = css`
@@ -582,6 +584,36 @@ export class AskView extends LitElement {
             outline: none;
         }
 
+        /* The height is explicit, not min-height or padding-driven, so that it is identical in
+           all four states: a status change must never be able to resize the window under someone
+           who is mid-read. */
+        .repo-status {
+            flex-shrink: 0;
+            height: 18px;
+            line-height: 18px;
+            padding: 0 16px;
+            box-sizing: border-box;
+            font-size: 10px;
+            font-family: 'Helvetica Neue', sans-serif;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.45);
+            user-select: none;
+        }
+
+        .repo-status.hidden {
+            display: none;
+        }
+
+        /* One colour for both: either way the model cannot see your code, and the fix is the same. */
+        .repo-status-withheld,
+        .repo-status-pending {
+            color: rgba(255, 193, 94, 0.85);
+        }
+
         .response-line h1,
         .response-line h2,
         .response-line h3,
@@ -666,6 +698,7 @@ export class AskView extends LitElement {
         :host-context(body.has-glass) .close-button,
         :host-context(body.has-glass) .line-copy-button,
         :host-context(body.has-glass) .text-input-container,
+        :host-context(body.has-glass) .repo-status,
         :host-context(body.has-glass) .response-container pre,
         :host-context(body.has-glass) .response-container p code,
         :host-context(body.has-glass) .response-container pre code {
@@ -804,6 +837,7 @@ export class AskView extends LitElement {
         this.handleCloseAskWindow = this.handleCloseAskWindow.bind(this);
         this.handleCloseIfNoContent = this.handleCloseIfNoContent.bind(this);
         this.isPinned = false;
+        this.repoStatus = null;
         this._streamHeightFloor = 0;   // monotonic height while a response streams
 
         this.loadLibraries();
@@ -843,6 +877,7 @@ export class AskView extends LitElement {
             // identity, so registering an inline arrow function here would make every
             // removal a silent no-op and leak a listener on each reconnect.
             this.handleShowTextInput = () => {
+                this.refreshRepoStatus();
                 console.log('Show text input signal received');
                 if (!this.showTextInput) {
                     this.showTextInput = true;
@@ -855,6 +890,10 @@ export class AskView extends LitElement {
             this.handleScrollResponseUp = () => this.handleScroll('up');
             this.handleScrollResponseDown = () => this.handleScroll('down');
             this.handleAskStateUpdate = (event, newState) => {
+                // The rising edge, not every update: askService.js:557 broadcasts once per
+                // streamed token, so refreshing on each would cost an IPC round trip plus an
+                // electron-store read per token. isLoading rises once per question.
+                if (newState.isLoading && !this.isLoading) this.refreshRepoStatus();
                 this.currentResponse = newState.currentResponse;
                 this.currentQuestion = newState.currentQuestion;
                 this.isLoading       = newState.isLoading;
@@ -897,8 +936,25 @@ export class AskView extends LitElement {
                 window.api.askView.onScrollResponseUp(this.handleScrollResponseUp);
                 window.api.askView.onScrollResponseDown(this.handleScrollResponseDown);
                 window.api.askView.onAskStateUpdate(this.handleAskStateUpdate);
+                this.refreshRepoStatus();
             }
         }
+    }
+
+    /**
+     * Fire-and-forget. Under `watch:renderer` the renderer reloads while the old main process
+     * keeps running, so the channel can be missing and the invoke rejects; the line falls back to
+     * the "none configured" wording rather than leaving a dangling rejection.
+     */
+    refreshRepoStatus() {
+        // A pin is frozen: no re-query, even though render() also hides the line.
+        if (!window.api || this.isPinned) return;
+        window.api.askView.getRepoStatus()
+            .then(status => { this.repoStatus = status; })
+            .catch(err => {
+                this.repoStatus = null;
+                console.warn('AskView: could not read the repo-context status:', err);
+            });
     }
 
     disconnectedCallback() {
@@ -1473,6 +1529,7 @@ export class AskView extends LitElement {
     render() {
         const hasResponse = this.isLoading || this.currentResponse || this.isStreaming;
         const headerText = this.isLoading ? 'Thinking...' : 'AI Response';
+        const line = formatRepoStatus(this.repoStatus);
 
         return html`
             <div class="ask-container ${this.isPinned ? 'pinned' : ''}">
@@ -1548,6 +1605,11 @@ export class AskView extends LitElement {
                         </span>
                     </button>
                 </div>
+
+                <div
+                    class="repo-status repo-status-${line.state} ${this.isPinned ? 'hidden' : ''}"
+                    title=${line.detail}
+                >${line.text}</div>
             </div>
         `;
     }
@@ -1560,6 +1622,7 @@ export class AskView extends LitElement {
             const headerEl = this.shadowRoot.querySelector('.response-header');
             const responseEl = this.shadowRoot.querySelector('.response-container');
             const inputEl = this.shadowRoot.querySelector('.text-input-container');
+            const statusEl = this.shadowRoot.querySelector('.repo-status');
 
             if (!headerEl || !responseEl) return;
 
@@ -1580,8 +1643,9 @@ export class AskView extends LitElement {
                 responseHeight = responseEl.scrollHeight;
             }
             const inputHeight = (inputEl && !inputEl.classList.contains('hidden')) ? inputEl.offsetHeight : 0;
+            const statusHeight = (statusEl && !statusEl.classList.contains('hidden')) ? statusEl.offsetHeight : 0;
 
-            const idealHeight = headerHeight + responseHeight + inputHeight;
+            const idealHeight = headerHeight + responseHeight + inputHeight + statusHeight;
 
             // The window is anchored to the header and grows downward - or upward when there is
             // no room below - so it cannot claim the whole display. Leaving a margin keeps it on

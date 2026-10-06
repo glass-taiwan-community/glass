@@ -25,6 +25,7 @@ const { EventEmitter } = require('events');
 const askService = require('./features/ask/askService');
 const settingsService = require('./features/settings/settingsService');
 const voiceAskService = require('./features/voiceAsk/voiceAskService');
+const repoContextService = require('./features/common/repoContext/repoContextService');
 const sessionRepository = require('./features/common/repositories/session');
 const modelStateService = require('./features/common/services/modelStateService');
 const featureBridge = require('./bridge/featureBridge');
@@ -201,6 +202,13 @@ app.whenReady().then(async () => {
 
         // Probe the native voice-input hook early and log availability. Guarded internally,
         // so a load failure reports unavailable rather than blocking startup.
+        // Build the repo pack once at startup, fire and forget. Ask reads it synchronously via
+        // promptBlock(), so without this the pack never exists and every Ask gets the sentinel.
+        // Once per launch is the right cadence: the packed repo does not change during a session,
+        // and window-visibility hooks are not usable here -- windowManager.js:305 early-returns when
+        // the window is already visible, and askService.js:310 emits that event before it assembles
+        // the prompt, so a refresh keyed on it would always race the question that triggered it.
+        repoContextService.refresh().catch(e => console.error('[RepoContext] startup pack failed:', e.message));
         voiceAskService.initialize();
         // Enforce the 30-day retention window on saved Ask screenshots.
         askService.cleanupOldScreenshots().catch(() => {});
@@ -336,6 +344,7 @@ function setupWebDataHandlers() {
     const presetRepository = require('./features/common/repositories/preset');
     const snippetRepository = require('./features/common/repositories/snippet');
     const preContextRepository = require('./features/common/repositories/precontext');
+    const { DEFAULT_POLICY } = require('./features/common/repoContext/repoPack');
 
     const handleRequest = async (channel, responseChannel, payload) => {
         let result;
@@ -490,6 +499,27 @@ function setupWebDataHandlers() {
                     listenService.generateInitialSummary(payload.content);
                     result = { success: true };
                     break;
+
+                // REPO CONTEXT
+                // Braced because the cases above declare bare consts into the whole switch block's
+                // scope, so a name reused here would be a SyntaxError 170 lines away from its cause.
+                case 'get-repo-context': {
+                    result = { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens };
+                    break;
+                }
+                case 'save-repo-context': {
+                    const saved = await repoContextService.save(payload);
+                    if (!saved.ok) {
+                        result = saved;
+                        break;
+                    }
+                    result = {
+                        ok: true,
+                        refreshed: saved.refreshed,
+                        status: { ...repoContextService.status(), budgetTokens: DEFAULT_POLICY.budgetTokens },
+                    };
+                    break;
+                }
 
                 default:
                     throw new Error(`Unknown web data channel: ${channel}`);

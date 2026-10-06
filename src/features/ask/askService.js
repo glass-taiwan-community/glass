@@ -23,6 +23,7 @@ const execFile = util.promisify(require('child_process').execFile);
 const { desktopCapturer } = require('electron');
 const modelStateService = require('../common/services/modelStateService');
 const latencyProbe = require('../common/services/latencyProbe');
+const repoContextService = require('../common/repoContext/repoContextService');
 
 // Try to load sharp, but don't fail if it's not available
 let sharp;
@@ -240,7 +241,12 @@ class AskService {
             shouldSendScreenOnly = true;
             // Screen-only ask (Cmd+Enter twice) has no text prompt, so the screenshot is the
             // only record of what was asked -- flag it to be saved (gated by the setting).
-            await this.sendMessage('', [], { saveScreenshot: true });
+            //
+            // requireScreen overrides askAttachScreen here because with no text and no image the
+            // request carries no question at all, so skipping the capture produces a broken Ask
+            // rather than a faster one. askAttachScreen exists to return the measured ~550 ms on
+            // questions where the screen is irrelevant, and on this path it never is.
+            await this.sendMessage('', [], { saveScreenshot: true, requireScreen: true });
             return;
         }
 
@@ -328,6 +334,12 @@ class AskService {
         let sessionId;
 
         try {
+            // Function-local on purpose. askService -> settingsService:6 -> windowManager:6 ->
+            // shortcutsService:5 -> askService is a real require cycle, so a top-level require
+            // here would hand shortcutsService a half-initialized askService module.
+            const settingsService = require('../settings/settingsService');
+            const attachScreen = opts.requireScreen ? true : await settingsService.getAskAttachScreen();
+
             console.log(`[AskService] 🤖 Processing message: ${userPrompt.substring(0, 50)}...`);
 
             sessionId = await sessionRepository.getOrCreateActive('ask');
@@ -336,9 +348,8 @@ class AskService {
             // destination up front so captureScreenshot can write the readable copy in one pass.
             let imagePath = null;
             let saveReadableTo = null;
-            if (opts.saveScreenshot) {
+            if (opts.saveScreenshot && attachScreen) {
                 try {
-                    const settingsService = require('../settings/settingsService');
                     if (await settingsService.getSaveAskScreenshots()) {
                         const dir = path.join(app.getPath('userData'), 'ask-screenshots');
                         await fs.promises.mkdir(dir, { recursive: true });
@@ -351,16 +362,23 @@ class AskService {
                 }
             }
 
-            const screenshotResult = await captureScreenshot({ quality: 'medium', saveReadableTo });
-        latencyProbe.mark('screenshot');
-            const screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
-            // Only record the path if the file was actually written.
-            if (saveReadableTo && !screenshotResult.readablePath) imagePath = null;
+            let screenshotBase64 = null;
+            if (attachScreen) {
+                const screenshotResult = await captureScreenshot({ quality: 'medium', saveReadableTo });
+                screenshotBase64 = screenshotResult.success ? screenshotResult.base64 : null;
+                // Only record the path if the file was actually written.
+                if (saveReadableTo && !screenshotResult.readablePath) imagePath = null;
+            }
+            // Marked on both paths so a skipped capture still shows as a stage in the timeline
+            // rather than a missing line, which is what makes the saving verifiable. The delta is
+            // measured from ask-entry, so it keeps the session write and the settings read even
+            // when nothing is captured; it drops to those, it does not drop to zero.
+            latencyProbe.mark('screenshot');
 
             await askRepository.addAiMessage({ sessionId, role: 'user', content: userPrompt.trim(), imagePath });
             console.log(`[AskService] DB: Saved user prompt to session ${sessionId}${imagePath ? ' (with screenshot)' : ''}`);
 
-            const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            const modelInfo = await modelStateService.resolveModelInfo('llm', await settingsService.getAskModelOverride());
             if (!modelInfo || !modelInfo.apiKey) {
                 throw new Error('AI model or API key not configured.');
             }
@@ -374,7 +392,13 @@ class AskService {
             const availableTurns = conversationHistoryRaw?.length ?? 0;
             console.log(`[AskService] Context: ${Math.min(availableTurns, 30)} of ${availableTurns} conversation turn(s) sent, screenshot=${screenshotBase64 ? 'yes' : 'no'}`);
 
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false);
+            const systemPrompt = getSystemPrompt({
+                profile: 'pickle_glass_analysis',
+                customPrompt: conversationHistory,
+                googleSearchEnabled: false,
+                preContext: repoContextService.promptBlock(),
+                screenAttached: !!screenshotBase64,
+            });
 
             const messages = [
                 { role: 'system', content: systemPrompt },
