@@ -51,9 +51,28 @@ const formatDuration = (session: Session): string | null => {
   return `${hours}h ${minutes % 60}m`
 }
 
+/**
+ * Renders the calendar date a session started on. The groups only say "This month" or
+ * "Earlier", which is not enough to find one conversation among many.
+ *
+ * @param startedAt - Session start, in seconds since the epoch
+ * @returns e.g. "Mon, Oct 5", with the year appended for sessions from a previous year
+ */
+const formatDate = (startedAt: number): string => {
+  const started = new Date(startedAt * 1000)
+  const sameYear = started.getFullYear() === new Date().getFullYear()
+  return started.toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+
 /** The scannable facts under a card's preview line, with empty ones dropped rather than zeroed. */
 const metaParts = (session: Session): string[] => {
   const parts: string[] = [
+    formatDate(session.started_at),
     new Date(session.started_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
   ]
   const duration = formatDuration(session)
